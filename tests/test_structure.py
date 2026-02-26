@@ -70,3 +70,36 @@ def test_docker_config_ports():
     with open(docker_compose_path, 'r') as f:
         docker_compose_content = f.read()
         assert '"8000:8000"' in docker_compose_content or "'8000:8000'" in docker_compose_content or "8000:8000" in docker_compose_content
+
+def test_pyproject_dependencies():
+    """Verify that essential dependencies are present in pyproject.toml."""
+    root = Path(__file__).parent.parent
+    pyproject_path = root / "pyproject.toml"
+    
+    with open(pyproject_path, 'r') as f:
+        content = f.read()
+        essential_deps = [
+            "fastapi",
+            "uvicorn",
+            "neo4j",
+            "pydantic",
+            "pydantic-settings",
+            "openai",
+            "anthropic",
+            "apscheduler",
+            "httpx",
+        ]
+        for dep in essential_deps:
+            assert dep in content
+
+def test_dockerfile_stages():
+    """Verify that Dockerfile uses a multi-stage build as per requirements."""
+    root = Path(__file__).parent.parent
+    dockerfile_path = root / "Dockerfile"
+    
+    with open(dockerfile_path, 'r') as f:
+        content = f.read()
+        # Look for multiple FROM statements which indicate multi-stage
+        from_count = content.count("FROM ")
+        assert from_count >= 2, "Dockerfile should use multi-stage build"
+        assert "python:3.12" in content or "python:3.12-slim" in content

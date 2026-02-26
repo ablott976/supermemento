@@ -1,9 +1,8 @@
-import pytest
 from app.models.entity import Entity
 from app.models.document import Document, ContentType, DocumentStatus
 from app.models.chunk import Chunk
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import datetime
 
 def test_entity_serialization():
     """Verify Entity model can be serialized and deserialized."""
