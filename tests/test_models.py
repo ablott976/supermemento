@@ -112,6 +112,35 @@ def test_user_model():
     # In a real app we would update the user, here we just verify it exists
     assert user.last_active_at >= user.created_at
 
+def test_embedding_dimension_validation():
+    """Verify that models validate embedding dimension."""
+    import pytest
+    from pydantic import ValidationError
+    
+    # Test Entity with wrong embedding dimension
+    with pytest.raises(ValidationError) as excinfo:
+        Entity(
+            name="Test Entity",
+            entityType="Person",
+            observations=[],
+            embedding=[0.1] * 100  # Wrong dimension (should be 3072)
+        )
+    assert "Embedding must have dimension 3072" in str(excinfo.value)
+    
+    # Test Chunk with wrong embedding dimension
+    from app.models.chunk import Chunk
+    from uuid import uuid4
+    with pytest.raises(ValidationError) as excinfo:
+        Chunk(
+            content="test",
+            token_count=1,
+            chunk_index=0,
+            container_tag="tag",
+            embedding=[0.1] * 10,  # Wrong dimension
+            source_doc_id=uuid4()
+        )
+    assert "Embedding must have dimension 3072" in str(excinfo.value)
+
 def test_timestamp_auto_generation():
     """Verify that timestamps are automatically generated on model creation."""
     # Entity

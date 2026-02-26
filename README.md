@@ -5,6 +5,7 @@ Intelligent memory platform with smart relations, auto-forgetting, multimodal in
 ## Features (Currently Implemented)
 - **FastAPI Core:** Modern Python 3.12 application.
 - **Neo4j Data Model:** Support for Entities, Documents, Chunks, and Memories with vector indexing.
+- **Database Schema Initialization:** Automated creation of constraints and indexes.
 - **Health Check:** `/health` endpoint to verify application and Neo4j connectivity.
 - **Dockerized Setup:** Ready to run with Docker and Docker Compose.
 - **Verification Suite:** Comprehensive tests for configuration, models, and structure.
