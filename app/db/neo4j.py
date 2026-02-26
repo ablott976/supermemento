@@ -1,6 +1,12 @@
 import logging
 from neo4j import AsyncGraphDatabase, AsyncDriver
 from app.config import settings
+from app.db.queries import (
+    CONSTRAINTS,
+    INDEXES,
+    get_vector_index_check_query,
+    get_vector_index_create_query
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,25 +37,8 @@ async def init_db() -> None:
     """Initializes the Neo4j database with constraints and indexes."""
     driver = await get_neo4j_driver()
     async with driver.session() as session:
-        # Constraints
-        constraints = [
-            "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE",
-            "CREATE CONSTRAINT memory_id IF NOT EXISTS FOR (m:Memory) REQUIRE m.id IS UNIQUE",
-            "CREATE CONSTRAINT document_id IF NOT EXISTS FOR (d:Document) REQUIRE d.id IS UNIQUE",
-            "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (c:Chunk) REQUIRE c.id IS UNIQUE",
-            "CREATE CONSTRAINT user_id IF NOT EXISTS FOR (u:User) REQUIRE u.user_id IS UNIQUE"
-        ]
-
-        # Indexes
-        indexes = [
-            "CREATE INDEX memory_container IF NOT EXISTS FOR (m:Memory) ON (m.container_tag)",
-            "CREATE INDEX memory_latest IF NOT EXISTS FOR (m:Memory) ON (m.is_latest)",
-            "CREATE INDEX memory_type IF NOT EXISTS FOR (m:Memory) ON (m.memory_type)",
-            "CREATE INDEX document_status IF NOT EXISTS FOR (d:Document) ON (d.status)"
-        ]
-
         logger.info("Initializing Neo4j constraints and indexes...")
-        for query in constraints + indexes:
+        for query in CONSTRAINTS + INDEXES:
             try:
                 await session.run(query)
             except Exception as e:
@@ -66,11 +55,14 @@ async def init_db() -> None:
         for name, label, prop in vector_indexes:
             try:
                 # First check if it exists
-                result = await session.run(f"SHOW INDEXES YIELD name WHERE name = '{name}'")
+                check_query = get_vector_index_check_query(name)
+                result = await session.run(check_query)
                 exists = await result.single()
                 if not exists:
-                    query = f"CALL db.index.vector.createNodeIndex('{name}', '{label}', '{prop}', {settings.EMBEDDING_DIMENSION}, 'cosine')"
-                    await session.run(query)
+                    create_query = get_vector_index_create_query(
+                        name, label, prop, settings.EMBEDDING_DIMENSION
+                    )
+                    await session.run(create_query)
                     logger.info(f"Vector index '{name}' created.")
                 else:
                     logger.info(f"Vector index '{name}' already exists.")
