@@ -108,6 +108,9 @@ def test_user_model():
     assert user.user_id == "user1"
     assert isinstance(user.created_at, datetime)
     assert isinstance(user.last_active_at, datetime)
+    
+    # In a real app we would update the user, here we just verify it exists
+    assert user.last_active_at >= user.created_at
 
 def test_timestamp_auto_generation():
     """Verify that timestamps are automatically generated on model creation."""
