@@ -92,6 +92,21 @@ def test_pyproject_dependencies():
         for dep in essential_deps:
             assert dep in content
 
+def test_pyproject_dev_dependencies():
+    """Verify that dev dependencies are present in pyproject.toml."""
+    root = Path(__file__).parent.parent
+    pyproject_path = root / "pyproject.toml"
+    
+    with open(pyproject_path, 'r') as f:
+        content = f.read()
+        dev_deps = [
+            "pytest",
+            "ruff",
+            "pytest-asyncio",
+        ]
+        for dep in dev_deps:
+            assert dep in content
+
 def test_dockerfile_stages():
     """Verify that Dockerfile uses a multi-stage build as per requirements."""
     root = Path(__file__).parent.parent
