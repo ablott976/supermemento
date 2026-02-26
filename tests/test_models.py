@@ -108,3 +108,29 @@ def test_user_model():
     assert user.user_id == "user1"
     assert isinstance(user.created_at, datetime)
     assert isinstance(user.last_active_at, datetime)
+
+def test_timestamp_auto_generation():
+    """Verify that timestamps are automatically generated on model creation."""
+    # Entity
+    entity = Entity(name="Test", entityType="Type")
+    assert entity.created_at is not None
+    assert entity.updated_at is not None
+    assert (datetime.now(timezone.utc) - entity.created_at).total_seconds() < 1
+    
+    # Document
+    from app.models.document import ContentType
+    doc = Document(title="Doc", raw_content="Content", content_type=ContentType.TEXT, container_tag="tag")
+    assert doc.created_at is not None
+    assert doc.updated_at is not None
+    
+    # Memory
+    from app.models.memory import MemoryType
+    memory = Memory(
+        content="Fact", 
+        container_tag="tag", 
+        embedding=[0.0]*3072, 
+        source_doc_id=doc.id, 
+        memory_type=MemoryType.FACT,
+        valid_from=datetime.now(timezone.utc)
+    )
+    assert memory.created_at is not None
