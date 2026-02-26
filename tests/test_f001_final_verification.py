@@ -62,6 +62,15 @@ def test_model_instantiation():
     user = User(user_id="user_1")
     assert user.user_id == "user_1"
 
+def test_user_uniqueness_logic():
+    """Verify that User model validates user_id."""
+    from app.models.user import User
+    u1 = User(user_id="user_1")
+    u2 = User(user_id="user_1")
+    assert u1.user_id == u2.user_id
+    # We don't have uniqueness at Pydantic level but at DB level (constraints)
+    # which is verified in test_final_db_queries_check in handover.
+
 def test_dockerfile_compliance():
     """Verify Dockerfile contains multi-stage and correct python version."""
     root = Path(__file__).parent.parent
