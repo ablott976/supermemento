@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from app.db.neo4j import get_neo4j_driver
 
 @pytest.fixture
 def mock_neo4j_driver(monkeypatch):
