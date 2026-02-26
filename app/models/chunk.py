@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from app.config import settings
 
 class ChunkBase(BaseModel):
     content: str
@@ -14,9 +15,23 @@ class ChunkBase(BaseModel):
 class ChunkCreate(ChunkBase):
     embedding: List[float]
 
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding_dimension(cls, v: List[float]) -> List[float]:
+        if len(v) != settings.EMBEDDING_DIMENSION:
+            raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
+        return v
+
 class Chunk(ChunkBase):
     model_config = ConfigDict(from_attributes=True)
     
     id: UUID = Field(default_factory=uuid4)
     embedding: List[float]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding_dimension(cls, v: List[float]) -> List[float]:
+        if len(v) != settings.EMBEDDING_DIMENSION:
+            raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
+        return v

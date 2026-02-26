@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from app.config import settings
 
 class MemoryType(str, Enum):
     FACT = "fact"
@@ -23,6 +24,13 @@ class MemoryCreate(MemoryBase):
     valid_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     valid_to: Optional[datetime] = None
 
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding_dimension(cls, v: Optional[List[float]]) -> Optional[List[float]]:
+        if v is not None and len(v) != settings.EMBEDDING_DIMENSION:
+            raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
+        return v
+
 class Memory(MemoryBase):
     model_config = ConfigDict(from_attributes=True)
     
@@ -32,3 +40,10 @@ class Memory(MemoryBase):
     valid_to: Optional[datetime] = None
     forgotten_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding_dimension(cls, v: Optional[List[float]]) -> Optional[List[float]]:
+        if v is not None and len(v) != settings.EMBEDDING_DIMENSION:
+            raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
+        return v

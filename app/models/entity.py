@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional, List
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from app.config import settings
 
 class EntityBase(BaseModel):
     name: str
@@ -19,3 +20,10 @@ class Entity(EntityBase):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     access_count: int = 0
+
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding_dimension(cls, v: Optional[List[float]]) -> Optional[List[float]]:
+        if v is not None and len(v) != settings.EMBEDDING_DIMENSION:
+            raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
+        return v
