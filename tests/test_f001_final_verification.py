@@ -1,3 +1,7 @@
+"""
+Final verification tests for Story 5/5 of F-001: Project Structure + Configuration.
+Ensures that all mandatory files, settings, and models are correctly implemented.
+"""
 from pathlib import Path
 from app.config import settings
 from app.models.entity import Entity
