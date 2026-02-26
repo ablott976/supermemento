@@ -1,0 +1,21 @@
+from datetime import datetime, timezone
+from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
+
+class EntityBase(BaseModel):
+    name: str
+    entityType: str
+    observations: List[str] = Field(default_factory=list)
+    status: str = "active"
+
+class EntityCreate(EntityBase):
+    pass
+
+class Entity(EntityBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    embedding: Optional[List[float]] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_accessed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    access_count: int = 0
