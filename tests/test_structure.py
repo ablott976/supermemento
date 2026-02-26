@@ -25,6 +25,36 @@ def test_project_structure():
     for file_path in mandatory_files:
         assert (root / file_path).exists(), f"Mandatory file {file_path} is missing"
 
+def test_env_example_content():
+    """Verify that .env.example contains essential configuration keys."""
+    root = Path(__file__).parent.parent
+    env_example_path = root / ".env.example"
+    
+    with open(env_example_path, 'r') as f:
+        content = f.read()
+        essential_keys = [
+            "NEO4J_URI",
+            "NEO4J_USER",
+            "NEO4J_PASSWORD",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+        ]
+        for key in essential_keys:
+            assert f"{key}=" in content
+
+def test_docker_config_services():
+    """Verify docker-compose.yml contains essential services."""
+    root = Path(__file__).parent.parent
+    docker_compose_path = root / "docker-compose.yml"
+    
+    with open(docker_compose_path, 'r') as f:
+        content = f.read()
+        assert "services:" in content
+        assert "  app:" in content
+        assert "  neo4j:" in content
+        assert "depends_on:" in content
+        assert "neo4j_data:" in content
+
 def test_docker_config_ports():
     """Verify Docker configuration uses the correct ports."""
     root = Path(__file__).parent.parent
