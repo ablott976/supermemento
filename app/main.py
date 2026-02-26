@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+
 from app.config import settings
 from app.db.neo4j import init_db, close_neo4j_driver
 
@@ -22,7 +23,6 @@ async def health_check():
         neo4j_status = "connected"
     except Exception as e:
         neo4j_status = f"disconnected: {e}"
-    
     return {
         "status": "ok",
         "neo4j": neo4j_status
