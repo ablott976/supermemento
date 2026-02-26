@@ -7,6 +7,9 @@ def test_constraints_format():
         assert query.startswith("CREATE CONSTRAINT")
         assert "IF NOT EXISTS" in query
         assert "UNIQUE" in query
+    
+    # Verify specific user_id constraint
+    assert any("u:User" in q and "u.user_id" in q for q in CONSTRAINTS)
 
 def test_indexes_format():
     """Verify that index queries are well-formed strings."""
