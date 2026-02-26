@@ -25,6 +25,19 @@ def test_project_structure():
     for file_path in mandatory_files:
         assert (root / file_path).exists(), f"Mandatory file {file_path} is missing"
 
+def test_docs_presence():
+    """Verify that essential documentation files are present."""
+    root = Path(__file__).parent.parent
+    
+    docs = [
+        "README.md",
+        "CLAUDE.md",
+        "docs/BLUEPRINT.md",
+    ]
+    
+    for doc in docs:
+        assert (root / doc).exists(), f"Documentation file {doc} is missing"
+
 def test_env_example_content():
     """Verify that .env.example contains essential configuration keys."""
     root = Path(__file__).parent.parent
