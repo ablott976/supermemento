@@ -66,7 +66,7 @@ class Chunk(BaseModel):
     content: str = Field(..., description="The actual text content of the chunk")
     token_count: int = Field(..., description="Number of tokens in the chunk")
     chunk_index: int = Field(..., description="Index of the chunk within its source document")
-    embedding: List[float] = Field(..., description="Embedding vector for the chunk")
+    embedding: Optional[List[float]] = Field(None, description="Optional embedding vector for the chunk") # Changed from required to optional with default None
     container_tag: str = Field(..., description="Tag identifying the container or context of the chunk")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="JSON metadata associated with the chunk")
     source_doc_id: UUID = Field(..., description="UUID of the source document this chunk belongs to")

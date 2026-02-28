@@ -7,11 +7,13 @@ from app.db.queries import (
     get_vector_index_check_query,
     get_vector_index_create_query
 )
+from typing import Optional # Added import
+
 
 logger = logging.getLogger(__name__)
 
 # Global driver instance
-_driver: AsyncDriver | None = None
+_driver: Optional[AsyncDriver] = None
 
 
 async def get_neo4j_driver() -> AsyncDriver:
