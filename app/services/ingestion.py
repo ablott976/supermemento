@@ -3,6 +3,10 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import tiktoken # Added import
+from app.services.embedding import EmbeddingService # New import
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Initialize tiktoken encoding globally for performance.
 # 'cl100k_base' is the encoding for models like gpt-4, gpt-3.5-turbo, text-embedding-3-large, etc.
@@ -36,7 +40,7 @@ class ChunkModel(BaseModel):
     content: str
     token_count: int
     chunk_index: int
-    # embedding: Optional[List[float]] = None # Embeddings will be generated later
+    embedding: Optional[List[float]] = None # Embeddings will be generated later
     container_tag: str
     metadata: Dict[str, Any]
     source_doc_id: uuid.UUID
@@ -195,6 +199,40 @@ async def process_document_chunking(document: DocumentModel) -> List[ChunkModel]
         # In a full pipeline, you would update the document status to 'error' here.
         # raise e # Re-raise or handle as per pipeline error strategy
         return []
+
+async def generate_chunk_embeddings(chunks: List[ChunkModel]) -> List[ChunkModel]:
+    """
+    Generates embeddings for a list of chunks using the EmbeddingService.
+    """
+    if not chunks:
+        return []
+
+    embedding_service = EmbeddingService() # Instantiate the service
+    
+    # Extract content from chunks
+    chunk_contents = [chunk.content for chunk in chunks]
+    
+    # Generate embeddings
+    try:
+        embeddings = await embedding_service.embed(chunk_contents)
+    except Exception as e:
+        logger.error(f"Failed to generate embeddings for {len(chunks)} chunks: {e}")
+        # In a real scenario, we might update chunk status to 'error' or re-raise
+        raise e 
+
+    # Pair embeddings with chunks and update ChunkModel
+    updated_chunks: List[ChunkModel] = []
+    for i, chunk in enumerate(chunks):
+        # Create a copy or modify in place. Pydantic models are mutable by default.
+        # Ensure the embedding is assigned to the correct chunk.
+        if i < len(embeddings): # Safety check
+            chunk.embedding = embeddings[i] 
+            updated_chunks.append(chunk)
+        else:
+            # This case should ideally not happen if embed returns same number of embeddings
+            logger.warning(f"Missing embedding for chunk {chunk.id}. Expected {len(embeddings)} but got {len(chunk_contents)}.")
+
+    return updated_chunks
 
 # Example of how this might be used (for testing purposes, not part of the final service file)
 async def main():
