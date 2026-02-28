@@ -1,0 +1,1 @@
+"""Supermemento application package."""
