@@ -12,11 +12,11 @@ from app.db.queries import (
 logger = logging.getLogger(__name__)
 
 # Node Labels
-LABEL_ENTITY = "Entity"
+LABEL_ENTITY = "Entity"  # Properties: name, entityType, observations, embedding, created_at, updated_at, last_accessed_at, access_count, status
 LABEL_DOCUMENT = "Document"  # Properties: id, title, source_url, content_type, raw_content, container_tag, metadata, status, created_at, updated_at
 LABEL_CHUNK = "Chunk"  # Properties: id, content, token_count, chunk_index, embedding, container_tag, metadata, source_doc_id, created_at
-LABEL_MEMORY = "Memory"
-LABEL_USER = "User"
+LABEL_MEMORY = "Memory"  # Properties: id, content, memory_type, container_tag, is_latest, confidence, embedding, valid_from, valid_to, forgotten_at, source_doc_id, created_at
+LABEL_USER = "User"  # Properties: user_id, created_at, last_active_at
 
 # Relationship Types
 REL_BELONGS_TO = "BELONGS_TO"
