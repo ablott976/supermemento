@@ -1,11 +1,13 @@
 import logging
-from neo4j import AsyncGraphDatabase, AsyncDriver
+
+from neo4j import AsyncDriver, AsyncGraphDatabase
+
 from app.config import settings
 from app.db.queries import (
     CONSTRAINTS,
     INDEXES,
     get_vector_index_check_query,
-    get_vector_index_create_query
+    get_vector_index_create_query,
 )
 
 logger = logging.getLogger(__name__)

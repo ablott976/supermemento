@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from app.config import settings
+
 
 class ChunkBase(BaseModel):
     content: str

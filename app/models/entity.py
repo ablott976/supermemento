@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
-from typing import Optional, List
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from app.config import settings
+
 
 class EntityBase(BaseModel):
     name: str

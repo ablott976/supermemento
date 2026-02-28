@@ -1,10 +1,12 @@
-from app.models.entity import Entity
-from app.models.document import Document, ContentType, DocumentStatus
-from app.models.memory import Memory, MemoryType
-from app.models.chunk import Chunk
-from app.models.user import User
-from uuid import uuid4
 from datetime import datetime, timezone
+from uuid import uuid4
+
+from app.models.chunk import Chunk
+from app.models.document import ContentType, Document, DocumentStatus
+from app.models.entity import Entity
+from app.models.memory import Memory, MemoryType
+from app.models.user import User
+
 
 def test_entity_model():
     """Verify Entity model has all properties from BLUEPRINT.md."""
@@ -128,8 +130,9 @@ def test_embedding_dimension_validation():
     assert "Embedding must have dimension 3072" in str(excinfo.value)
     
     # Test Chunk with wrong embedding dimension
-    from app.models.chunk import Chunk
     from uuid import uuid4
+
+    from app.models.chunk import Chunk
     with pytest.raises(ValidationError) as excinfo:
         Chunk(
             content="test",

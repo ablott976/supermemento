@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class UserBase(BaseModel):
     user_id: str

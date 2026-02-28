@@ -1,9 +1,12 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List
+from typing import List, Optional
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from app.config import settings
+
 
 class MemoryType(str, Enum):
     FACT = "fact"

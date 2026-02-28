@@ -1,5 +1,6 @@
 from pathlib import Path
 
+
 def test_project_structure():
     """Verify that all mandatory files are present in the project structure."""
     root = Path(__file__).parent.parent

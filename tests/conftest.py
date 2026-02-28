@@ -1,6 +1,8 @@
 import os
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 
 @pytest.fixture
 def mock_neo4j_driver(monkeypatch):

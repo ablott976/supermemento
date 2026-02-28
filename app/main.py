@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
 import uvicorn
+from fastapi import FastAPI
 
 from app.config import settings
 from app.db.neo4j import close_neo4j_driver, get_neo4j_driver, init_db

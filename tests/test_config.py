@@ -1,4 +1,5 @@
 import os
+
 import pytest
 
 # Set RUNNING_TESTS environment variable to bypass the check in app/config.py during import.
@@ -6,6 +7,7 @@ import pytest
 os.environ["RUNNING_TESTS"] = "1"
 
 from app.config import Settings, validate_config
+
 
 def test_settings_load(monkeypatch):
     """Test that default settings load correctly when NEO4J_PASSWORD is provided."""

@@ -1,8 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock
-from app.db.neo4j import init_db
-from app.db import queries
+
+import pytest
+
 from app.config import settings
+from app.db import queries
+from app.db.neo4j import init_db
+
 
 @pytest.mark.asyncio
 async def test_init_db(mock_neo4j_driver):

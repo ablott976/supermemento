@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class ContentType(str, Enum):
     TEXT = "text"
