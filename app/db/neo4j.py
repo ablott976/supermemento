@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Node Labels
 LABEL_ENTITY = "Entity"
 LABEL_DOCUMENT = "Document"  # Properties: id, title, source_url, content_type, raw_content, container_tag, metadata, status, created_at, updated_at
-LABEL_CHUNK = "Chunk"
+LABEL_CHUNK = "Chunk"  # Properties: id, content, token_count, chunk_index, embedding, container_tag, metadata, source_doc_id, created_at
 LABEL_MEMORY = "Memory"
 LABEL_USER = "User"
 
