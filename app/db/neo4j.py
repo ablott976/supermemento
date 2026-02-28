@@ -13,10 +13,19 @@ logger = logging.getLogger(__name__)
 
 # Node Labels
 LABEL_ENTITY = "Entity"
-LABEL_DOCUMENT = "Document"
+LABEL_DOCUMENT = "Document"  # Properties: id, title, source_url, content_type, raw_content, container_tag, metadata, status, created_at, updated_at
 LABEL_CHUNK = "Chunk"
 LABEL_MEMORY = "Memory"
 LABEL_USER = "User"
+
+# Relationship Types
+REL_BELONGS_TO = "BELONGS_TO"
+REL_PART_OF = "PART_OF"
+REL_EXTRACTED_FROM = "EXTRACTED_FROM"
+REL_RELATES_TO = "RELATES_TO"
+REL_UPDATES = "UPDATES"
+REL_EXTENDS = "EXTENDS"
+REL_DERIVES = "DERIVES"
 
 # Global driver instance
 _driver: AsyncDriver | None = None
@@ -61,7 +70,7 @@ async def init_db() -> None:
     
     This follows the schema defined in docs/BLUEPRINT.md §3:
     - Entity: name (unique), entityType, observations, embedding, status, etc.
-    - Document: id (unique), title, content, etc.
+    - Document: id (unique), title, raw_content, etc.
     - Chunk: id (unique), content, embedding, etc.
     - Memory: id (unique), content, embedding, is_latest, etc.
     - User: user_id (unique)
