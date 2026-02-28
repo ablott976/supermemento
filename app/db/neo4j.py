@@ -5,7 +5,7 @@ from app.db.queries import (
     CONSTRAINTS,
     INDEXES,
     get_vector_index_check_query,
-    get_vector_index_create_query
+    get_vector_index_create_query,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,8 +19,7 @@ async def get_neo4j_driver() -> AsyncDriver:
     global _driver
     if _driver is None:
         _driver = AsyncGraphDatabase.driver(
-            settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+            settings.NEO4J_URI, auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
         )
     return _driver
 
@@ -42,14 +41,16 @@ async def init_db() -> None:
             try:
                 await session.run(query)
             except Exception as e:
-                logger.warning(f"Error running constraint/index query: {query}. Error: {e}")
+                logger.warning(
+                    f"Error running constraint/index query: {query}. Error: {e}"
+                )
 
-        # Vector indexes (using newer 5.15+ syntax or CALL if older. 
+        # Vector indexes (using newer 5.15+ syntax or CALL if older.
         # Using CALL as per BLUEPRINT, but catching error if exists)
         vector_indexes = [
             ("entity_embeddings", "Entity", "embedding"),
             ("memory_embeddings", "Memory", "embedding"),
-            ("chunk_embeddings", "Chunk", "embedding")
+            ("chunk_embeddings", "Chunk", "embedding"),
         ]
 
         for name, label, prop in vector_indexes:

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class CICDProvider(str, Enum):
     """Supported CI/CD providers."""
+
     GITHUB_ACTIONS = "github_actions"
     GITLAB_CI = "gitlab_ci"
     JENKINS = "jenkins"
@@ -19,6 +20,7 @@ class CICDProvider(str, Enum):
 
 class CICDExecutionStatus(str, Enum):
     """Execution status states."""
+
     PENDING = "pending"
     QUEUED = "queued"
     RUNNING = "running"
@@ -30,23 +32,32 @@ class CICDExecutionStatus(str, Enum):
 
 class CICDExecutionBase(BaseModel):
     """Base CI/CD execution model."""
+
     repository: str = Field(..., description="Repository URL or identifier")
     branch: str = Field(default="main", description="Git branch to execute on")
     command: str = Field(..., description="CI/CD command or pipeline identifier")
-    provider: CICDProvider = Field(default=CICDProvider.LOCAL, description="CI/CD provider")
-    environment: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    provider: CICDProvider = Field(
+        default=CICDProvider.LOCAL, description="CI/CD provider"
+    )
+    environment: Dict[str, str] = Field(
+        default_factory=dict, description="Environment variables"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
 
 
 class CICDExecutionCreate(CICDExecutionBase):
     """Model for creating a new CI/CD execution."""
+
     pass
 
 
 class CICDExecution(CICDExecutionBase):
     """Full CI/CD execution model with runtime fields."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: UUID = Field(default_factory=uuid4)
     status: CICDExecutionStatus = Field(default=CICDExecutionStatus.PENDING)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -60,16 +71,24 @@ class CICDExecution(CICDExecutionBase):
 
 class CICDExecuteRequest(BaseModel):
     """Request model for triggering CI/CD execution."""
+
     repository: str = Field(..., description="Repository URL or identifier")
     branch: str = Field(default="main", description="Git branch to execute on")
     command: str = Field(..., description="CI/CD command or pipeline identifier")
-    provider: CICDProvider = Field(default=CICDProvider.LOCAL, description="CI/CD provider to use")
-    environment: Optional[Dict[str, str]] = Field(default=None, description="Optional environment variables")
-    timeout_seconds: Optional[int] = Field(default=3600, description="Execution timeout in seconds", ge=1)
+    provider: CICDProvider = Field(
+        default=CICDProvider.LOCAL, description="CI/CD provider to use"
+    )
+    environment: Optional[Dict[str, str]] = Field(
+        default=None, description="Optional environment variables"
+    )
+    timeout_seconds: Optional[int] = Field(
+        default=3600, description="Execution timeout in seconds", ge=1
+    )
 
 
 class CICDExecuteResponse(BaseModel):
     """Immediate response after triggering CI/CD execution."""
+
     execution_id: UUID = Field(default_factory=uuid4)
     status: CICDExecutionStatus = Field(default=CICDExecutionStatus.QUEUED)
     repository: str
@@ -80,8 +99,9 @@ class CICDExecuteResponse(BaseModel):
 
 class CICDExecutionResult(BaseModel):
     """Detailed result of a CI/CD execution."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     execution_id: UUID
     status: CICDExecutionStatus
     repository: str
@@ -92,11 +112,14 @@ class CICDExecutionResult(BaseModel):
     stderr: str = Field(default="", description="Standard error from execution")
     duration_seconds: Optional[float]
     completed_at: Optional[datetime]
-    artifacts: List[str] = Field(default_factory=list, description="List of artifact URLs or paths")
+    artifacts: List[str] = Field(
+        default_factory=list, description="List of artifact URLs or paths"
+    )
 
 
 class CICDLogEntry(BaseModel):
     """Individual log entry from CI/CD execution."""
+
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     level: str = Field(..., description="Log level (INFO, ERROR, WARN, DEBUG)")
     message: str

@@ -12,16 +12,16 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """OpenAI Embedding Service wrapper for text-embedding-3-large.
-    
-    Supports batching up to 100 texts per request and includes exponential backoff 
+
+    Supports batching up to 100 texts per request and includes exponential backoff
     retries with jitter for improved reliability under load.
     """
-    
+
     MAX_BATCH_SIZE = 100  # OpenAI API limit for embeddings batch size
 
     def __init__(self, api_key: Optional[str] = None):
         """Initialize the embedding service with the OpenAI API key.
-        
+
         Args:
             api_key: OpenAI API key. If not provided, uses settings.OPENAI_API_KEY.
         """
@@ -48,10 +48,10 @@ class EmbeddingService:
 
     def _validate_texts(self, texts: List[str]) -> None:
         """Validate that all texts are non-empty strings.
-        
+
         Args:
             texts: List of texts to validate.
-            
+
         Raises:
             ValueError: If any text is empty or not a string.
         """
@@ -62,22 +62,20 @@ class EmbeddingService:
                 raise ValueError(f"Text at index {i} is empty or whitespace-only")
 
     async def _embed_batch_with_retry(
-        self, 
-        batch: List[str], 
-        batch_start_index: int = 0
+        self, batch: List[str], batch_start_index: int = 0
     ) -> List[List[float]]:
         """Embed a batch of texts with exponential backoff retry logic.
-        
-        Implements exponential backoff with jitter to handle rate limits and 
+
+        Implements exponential backoff with jitter to handle rate limits and
         transient failures. Enforces MAX_BATCH_SIZE limit of 100 texts.
-        
+
         Args:
             batch: List of texts to embed (max 100 items).
             batch_start_index: Starting index of this batch for logging purposes.
-            
+
         Returns:
             List of embedding vectors in the same order as input texts.
-            
+
         Raises:
             ValueError: If batch size exceeds MAX_BATCH_SIZE (100).
             Exception: If all retry attempts fail.
@@ -86,12 +84,12 @@ class EmbeddingService:
             raise ValueError(
                 f"Batch size {len(batch)} exceeds maximum of {self.MAX_BATCH_SIZE}"
             )
-        
+
         # Validate texts before sending to API
         self._validate_texts(batch)
-        
+
         last_exception: Optional[Exception] = None
-        
+
         for attempt in range(self.max_retries):
             try:
                 response = await self.client.embeddings.create(
@@ -99,23 +97,23 @@ class EmbeddingService:
                     model=self.model,
                     dimensions=self.dimension,
                 )
-                
+
                 # Ensure results are in the correct order based on the index
                 embeddings = [
-                    data.embedding 
+                    data.embedding
                     for data in sorted(response.data, key=lambda x: x.index)
                 ]
                 return embeddings
-                
+
             except Exception as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
                     # Exponential backoff: base_delay * 2^attempt
-                    delay = min(self.base_delay * (2 ** attempt), self.max_delay)
+                    delay = min(self.base_delay * (2**attempt), self.max_delay)
                     # Add jitter (0-1 seconds) to prevent thundering herd
                     jitter = random.random()
                     wait_time = delay + jitter
-                    
+
                     logger.warning(
                         f"Embedding attempt {attempt + 1}/{self.max_retries} failed "
                         f"for batch starting at index {batch_start_index}. "
@@ -127,7 +125,7 @@ class EmbeddingService:
                         f"Failed to get embeddings after {self.max_retries} attempts "
                         f"for batch starting at index {batch_start_index}: {e}"
                     )
-        
+
         # If we get here, all retries failed
         if last_exception:
             raise last_exception
@@ -135,25 +133,25 @@ class EmbeddingService:
 
     async def embed(self, texts: List[str]) -> List[List[float]]:
         """Embed a list of texts using batching and retry logic.
-        
+
         Splits large lists into batches of MAX_BATCH_SIZE and processes them
         with exponential backoff retry logic.
-        
+
         Args:
             texts: List of texts to embed.
-            
+
         Returns:
             List of embedding vectors in the same order as input texts.
         """
         if not texts:
             return []
-        
+
         all_embeddings: List[List[float]] = []
-        
+
         # Process in batches
         for i in range(0, len(texts), self.MAX_BATCH_SIZE):
-            batch = texts[i:i + self.MAX_BATCH_SIZE]
+            batch = texts[i : i + self.MAX_BATCH_SIZE]
             batch_embeddings = await self._embed_batch_with_retry(batch, i)
             all_embeddings.extend(batch_embeddings)
-        
+
         return all_embeddings

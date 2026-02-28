@@ -1,9 +1,10 @@
 from pathlib import Path
 
+
 def test_project_structure():
     """Verify that all mandatory files are present in the project structure."""
     root = Path(__file__).parent.parent
-    
+
     mandatory_files = [
         "pyproject.toml",
         "Dockerfile",
@@ -21,29 +22,31 @@ def test_project_structure():
         "app/models/memory.py",
         "app/models/user.py",
     ]
-    
+
     for file_path in mandatory_files:
         assert (root / file_path).exists(), f"Mandatory file {file_path} is missing"
+
 
 def test_docs_presence():
     """Verify that essential documentation files are present."""
     root = Path(__file__).parent.parent
-    
+
     docs = [
         "README.md",
         "CLAUDE.md",
         "docs/BLUEPRINT.md",
     ]
-    
+
     for doc in docs:
         assert (root / doc).exists(), f"Documentation file {doc} is missing"
+
 
 def test_env_example_content():
     """Verify that .env.example contains essential configuration keys."""
     root = Path(__file__).parent.parent
     env_example_path = root / ".env.example"
-    
-    with open(env_example_path, 'r') as f:
+
+    with open(env_example_path, "r") as f:
         content = f.read()
         essential_keys = [
             "NEO4J_URI",
@@ -55,12 +58,13 @@ def test_env_example_content():
         for key in essential_keys:
             assert f"{key}=" in content
 
+
 def test_docker_config_services():
     """Verify docker-compose.yml contains essential services."""
     root = Path(__file__).parent.parent
     docker_compose_path = root / "docker-compose.yml"
-    
-    with open(docker_compose_path, 'r') as f:
+
+    with open(docker_compose_path, "r") as f:
         content = f.read()
         assert "services:" in content
         assert "  app:" in content
@@ -68,28 +72,34 @@ def test_docker_config_services():
         assert "depends_on:" in content
         assert "neo4j_data:" in content
 
+
 def test_docker_config_ports():
     """Verify Docker configuration uses the correct ports."""
     root = Path(__file__).parent.parent
     docker_compose_path = root / "docker-compose.yml"
     dockerfile_path = root / "Dockerfile"
-    
+
     # Check Dockerfile EXPOSE
-    with open(dockerfile_path, 'r') as f:
+    with open(dockerfile_path, "r") as f:
         dockerfile_content = f.read()
         assert "EXPOSE 8000" in dockerfile_content
-        
+
     # Check docker-compose ports
-    with open(docker_compose_path, 'r') as f:
+    with open(docker_compose_path, "r") as f:
         docker_compose_content = f.read()
-        assert '"8000:8000"' in docker_compose_content or "'8000:8000'" in docker_compose_content or "8000:8000" in docker_compose_content
+        assert (
+            '"8000:8000"' in docker_compose_content
+            or "'8000:8000'" in docker_compose_content
+            or "8000:8000" in docker_compose_content
+        )
+
 
 def test_pyproject_dependencies():
     """Verify that essential dependencies are present in pyproject.toml."""
     root = Path(__file__).parent.parent
     pyproject_path = root / "pyproject.toml"
-    
-    with open(pyproject_path, 'r') as f:
+
+    with open(pyproject_path, "r") as f:
         content = f.read()
         essential_deps = [
             "fastapi",
@@ -105,12 +115,13 @@ def test_pyproject_dependencies():
         for dep in essential_deps:
             assert dep in content
 
+
 def test_pyproject_dev_dependencies():
     """Verify that dev dependencies are present in pyproject.toml."""
     root = Path(__file__).parent.parent
     pyproject_path = root / "pyproject.toml"
-    
-    with open(pyproject_path, 'r') as f:
+
+    with open(pyproject_path, "r") as f:
         content = f.read()
         dev_deps = [
             "pytest",
@@ -120,12 +131,13 @@ def test_pyproject_dev_dependencies():
         for dep in dev_deps:
             assert dep in content
 
+
 def test_dockerfile_stages():
     """Verify that Dockerfile uses a multi-stage build as per requirements."""
     root = Path(__file__).parent.parent
     dockerfile_path = root / "Dockerfile"
-    
-    with open(dockerfile_path, 'r') as f:
+
+    with open(dockerfile_path, "r") as f:
         content = f.read()
         # Look for multiple FROM statements which indicate multi-stage
         from_count = content.count("FROM ")

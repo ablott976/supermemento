@@ -151,6 +151,7 @@ async def test_embed_raises_last_exception_after_retry_exhaustion(
     service: EmbeddingService, monkeypatch
 ):
     """The last API exception should bubble up after all retries fail."""
+
     async def fake_sleep(_delay: float):
         return None
 
