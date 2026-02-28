@@ -11,5 +11,5 @@ def mock_neo4j_driver(monkeypatch):
         return mock_driver
         
     monkeypatch.setattr("app.db.neo4j.get_neo4j_driver", mock_get_driver)
-    monkeypatch.setattr("app.main.get_neo4j_driver", mock_get_driver)
+    monkeypatch.setattr("app.api.health.get_neo4j_driver", mock_get_driver)
     return mock_driver
