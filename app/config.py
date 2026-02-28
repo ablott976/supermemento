@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,9 +8,9 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = "password"
 
     # API Keys
-    OPENAI_API_KEY: Optional[str] = None
-    ANTHROPIC_API_KEY: Optional[str] = None
-    FIRECRAWL_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: str | None = None
+    ANTHROPIC_API_KEY: str | None = None
+    FIRECRAWL_API_KEY: str | None = None
 
     # Server configuration
     MCP_SERVER_PORT: int = 8000
@@ -26,7 +25,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
 
 
