@@ -1,9 +1,18 @@
-# app/services/ingestion.py
-
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
+import tiktoken # Added import
+
+# Initialize tiktoken encoding globally for performance.
+# 'cl100k_base' is the encoding for models like gpt-4, gpt-3.5-turbo, text-embedding-3-large, etc.
+try:
+    encoding = tiktoken.get_encoding("cl100k_base")
+except ValueError:
+    print("Warning: tiktoken encoding 'cl100k_base' not found. Token counting might be inaccurate.")
+    # As a fallback, define a dummy encoding or raise an error if tiktoken is critical.
+    # For this context, let's assume it's available or the error will surface during testing.
+    encoding = None # Placeholder if not available.
 
 # Assuming these models exist based on the Neo4j Data Model Reference
 # If they don't, they would need to be created first.
@@ -33,16 +42,15 @@ class ChunkModel(BaseModel):
     source_doc_id: uuid.UUID
     created_at: datetime
 
-# Placeholder for a token counting function.
-# In a real implementation, this would use a library like tiktoken.
+# Updated token counting function using tiktoken
 def count_tokens(text: str) -> int:
     """
-    Placeholder function to count tokens in a given text.
-    Replace with actual tokenization logic (e.g., using tiktoken).
+    Counts tokens in a given text using tiktoken's cl100k_base encoding.
     """
-    # Simple heuristic: count words as tokens. This is highly inaccurate.
-    # A proper implementation should use a trained tokenizer.
-    return len(text.split())
+    if encoding is None:
+        # Fallback if encoding failed to initialize. Highly inaccurate.
+        return len(text.split()) 
+    return len(encoding.encode(text))
 
 # Example strategy for text chunking (semantic, 512-1024 tokens)
 def chunk_text_semantically(document: DocumentModel, max_tokens: int = 1024, min_tokens: int = 512) -> List[ChunkModel]:
@@ -61,11 +69,17 @@ def chunk_text_semantically(document: DocumentModel, max_tokens: int = 1024, min
     paragraphs = document.raw_content.split('\n\n') # Corrected split
 
     for paragraph in paragraphs:
+        # Ensure paragraph is not empty before counting tokens
+        if not paragraph.strip():
+            continue
         paragraph_tokens = count_tokens(paragraph)
 
         # If adding the paragraph exceeds max_tokens, finalize the current chunk
         # and start a new one with this paragraph.
-        if current_token_count + paragraph_tokens > max_tokens and current_chunk_content:
+        # Check if current_chunk_content is not empty AND if adding the new paragraph exceeds max_tokens.
+        # If current_chunk_content is empty, we must add the paragraph even if it exceeds max_tokens
+        # to avoid infinitely looping on a very large paragraph.
+        if current_chunk_content and (current_token_count + paragraph_tokens > max_tokens):
             chunk_content = "\n\n".join(current_chunk_content) # Corrected join
             chunk_token_count = count_tokens(chunk_content)
             chunks.append(ChunkModel(
@@ -89,9 +103,6 @@ def chunk_text_semantically(document: DocumentModel, max_tokens: int = 1024, min
     if current_chunk_content:
         chunk_content = "\n\n".join(current_chunk_content) # Corrected join
         chunk_token_count = count_tokens(chunk_content)
-        # Ensure even small remaining parts are added, but try to adhere to min_tokens if possible
-        # This logic might need refinement: what if the last chunk is smaller than min_tokens?
-        # For now, we add it.
         chunks.append(ChunkModel(
             id=uuid.uuid4(),
             content=chunk_content,
