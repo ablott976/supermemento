@@ -39,3 +39,21 @@ def test_health_check_generic_error_message(monkeypatch):
     # Ensure it's the generic message, not the sensitive info
     assert data["neo4j"] == "disconnected"
     assert sensitive_info not in str(data)
+
+def test_health_check_success(monkeypatch):
+    # Mock get_neo4j_driver to return a successful driver
+    class MockDriver:
+        async def verify_connectivity(self):
+            return True
+
+    async def mock_success():
+        return MockDriver()
+    
+    monkeypatch.setattr("app.main.get_neo4j_driver", mock_success)
+    
+    response = client.get("/health")
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["neo4j"] == "connected"
