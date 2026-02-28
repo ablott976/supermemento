@@ -16,5 +16,4 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Supermemento", lifespan=lifespan)
-
 app.include_router(health_router)

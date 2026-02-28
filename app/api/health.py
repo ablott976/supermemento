@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from app.db.neo4j import get_neo4j_driver
 
 router = APIRouter()
@@ -10,11 +11,12 @@ async def health_check() -> dict[str, str]:
     try:
         driver = await get_neo4j_driver()
         await driver.verify_connectivity()
-        neo4j_status = "connected"
+        return {
+            "status": "ok",
+            "neo4j": "connected",
+        }
     except Exception as e:
-        neo4j_status = f"disconnected: {str(e)}"
-
-    return {
-        "status": "ok",
-        "neo4j": neo4j_status,
-    }
+        return {
+            "status": "error",
+            "neo4j": f"disconnected: {str(e)}",
+        }

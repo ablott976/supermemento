@@ -103,7 +103,6 @@ async def init_db() -> None:
                 else:
                     logger.error(f"Failed to create constraint: {e}")
                     raise
-        
         logger.info(f"Ensured {constraint_count} constraints.")
         
         # 2. Create standard indexes idempotently
@@ -119,39 +118,38 @@ async def init_db() -> None:
                 else:
                     logger.error(f"Failed to create index: {e}")
                     raise
-        
         logger.info(f"Ensured {index_count} standard indexes.")
         
         # 3. Create vector indexes idempotently
         # Vector indexes don't support IF NOT EXISTS, so we check first then create
         vector_indexes = [
             ("entity_embedding", LABEL_ENTITY, "embedding", settings.EMBEDDING_DIMENSION),
-            ("chunk_embedding", LABEL_CHUNK, "embedding", settings.EMBEDDING_DIMENSION),
             ("memory_embedding", LABEL_MEMORY, "embedding", settings.EMBEDDING_DIMENSION),
+            ("chunk_embedding", LABEL_CHUNK, "embedding", settings.EMBEDDING_DIMENSION),
         ]
         
-        vector_index_count = 0
-        for name, label, prop, dimension in vector_indexes:
+        vector_count = 0
+        for idx_name, label, prop, dimension in vector_indexes:
             try:
                 # Check if index exists
-                check_query = get_vector_index_check_query(name)
-                result = await session.run(check_query)
-                records = await result.data()
+                check_result = await session.run(get_vector_index_check_query(idx_name))
+                existing = await check_result.data()
                 
-                if not records:
-                    # Create vector index
-                    create_query = get_vector_index_create_query(name, label, prop, dimension)
-                    await session.run(create_query)
-                    vector_index_count += 1
-                    logger.info(f"Created vector index: {name} on {label}.{prop}")
-                else:
-                    logger.debug(f"Vector index {name} already exists, skipping.")
-                    
+                if existing:
+                    logger.debug(f"Vector index '{idx_name}' already exists.")
+                    continue
+                
+                # Create index
+                create_query = get_vector_index_create_query(idx_name, label, prop, dimension)
+                await session.run(create_query)
+                vector_count += 1
+                logger.info(f"Created vector index: {idx_name}")
+                
             except ClientError as e:
                 if _is_already_exists_error(e):
-                    logger.debug(f"Vector index {name} already exists (concurrent creation), skipping.")
+                    logger.debug(f"Vector index '{idx_name}' already exists (race condition).")
                 else:
-                    logger.error(f"Failed to create vector index {name}: {e}")
+                    logger.error(f"Failed to create vector index {idx_name}: {e}")
                     raise
         
-        logger.info(f"Ensured {vector_index_count} vector indexes.")
+        logger.info(f"Ensured {vector_count} vector indexes.")
