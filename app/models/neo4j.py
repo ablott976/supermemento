@@ -73,3 +73,28 @@ class Chunk(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the chunk was created")
 
     # Note: The embedding dimension (3072d) is a database-level consideration for potential future indexing.
+
+class MemoryType(str, Enum):
+    fact = "fact"
+    preference = "preference"
+    episode = "episode"
+    derived = "derived"
+
+class Memory(BaseModel):
+    """
+    Represents the :Memory node label in Neo4j.
+    """
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier for the memory")
+    content: str = Field(..., description="The atomic content of the memory")
+    memory_type: MemoryType = Field(..., description="Type of the memory (fact, preference, episode, derived)")
+    container_tag: str = Field(..., description="Tag identifying the container or context of the memory")
+    is_latest: bool = Field(default=True, description="Flag indicating if this is the latest version of the memory")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score of the memory (0.0 to 1.0)")
+    embedding: Optional[List[float]] = Field(None, description="Optional embedding vector for the memory")
+    valid_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the memory becomes valid")
+    valid_to: Optional[datetime] = Field(None, description="Optional timestamp when the memory becomes invalid")
+    forgotten_at: Optional[datetime] = Field(None, description="Timestamp when the memory was forgotten")
+    source_doc_id: UUID = Field(..., description="UUID of the source document this memory was extracted from")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the memory was created")
+
+    # Note: The embedding dimension (3072d) is a database-level consideration for potential future indexing.
