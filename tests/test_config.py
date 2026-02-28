@@ -39,8 +39,22 @@ def test_missing_neo4j_password(monkeypatch):
     monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
     
     # Expect a ValidationError when trying to instantiate Settings without the required password
-    with pytest.raises(ValidationError) as excinfo:
+    with pytest.raises(ValidationError):
         Settings()
     
     # Optional: Add more specific checks on the error message if needed
     # assert "NEO4J_PASSWORD" in str(excinfo.value)
+
+def test_invalid_neo4j_password_length(monkeypatch):
+    """Test that configuration fails if NEO4J_PASSWORD is too short."""
+    # Set NEO4J_PASSWORD to a value less than the required minimum length (8)
+    short_password = "short"
+    monkeypatch.setenv("NEO4J_PASSWORD", short_password)
+    
+    # Expect a ValidationError when trying to instantiate Settings with a short password
+    with pytest.raises(ValidationError) as excinfo:
+        Settings()
+        
+    # Assert that the error message indicates a length issue for NEO4J_PASSWORD
+    assert "NEO4J_PASSWORD" in str(excinfo.value)
+    assert "String should have at least 8 characters" in str(excinfo.value)
