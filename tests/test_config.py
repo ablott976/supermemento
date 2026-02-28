@@ -1,3 +1,7 @@
+"""
+Tests for application configuration and environment variable loading.
+Includes verification for Issue #39: Ensuring NEO4J_PASSWORD is required and validated.
+"""
 from app.config import Settings
 from pydantic import ValidationError
 import pytest
