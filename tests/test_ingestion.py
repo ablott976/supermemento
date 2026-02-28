@@ -369,3 +369,33 @@ async def test_generate_chunk_embeddings_error_handling(mock_embedding_service, 
     # Verify that original chunks were not modified (no embeddings added)
     assert chunk1.embedding is None
     assert chunk2.embedding is None
+
+# --- New Tests for Error Cases (Story 12/14) ---
+
+# Test for chunking failure
+@pytest.mark.asyncio
+async def test_process_document_chunking_chunking_failure(mock_embedding_service, mock_tiktoken, monkeypatch):
+    """
+    Tests that process_document_chunking propagates exceptions during the chunking phase.
+    """
+    doc_id = uuid.uuid4()
+    raw_content = "Some text content that should be chunked."
+    document = create_mock_document(doc_id, "text", raw_content)
+
+    # Simulate a failure in the chunking function (e.g., chunk_text_semantically)
+    exception_to_raise = RuntimeError("Simulated chunking failure")
+
+    # Define a new async function that raises the exception for chunking
+    async def failing_chunk_text_semantically(*args, **kwargs):
+        raise exception_to_raise
+
+    # Use monkeypatch to replace the chunking function for the duration of this test
+    # The path 'app.services.ingestion.chunk_text_semantically' is derived from the imports.
+    monkeypatch.setattr("app.services.ingestion.chunk_text_semantically", failing_chunk_text_semantically)
+
+    # Assert that calling process_document_chunking raises the expected exception
+    with pytest.raises(RuntimeError, match="Simulated chunking failure"):
+        await process_document_chunking(document)
+
+    # Note: The monkeypatch fixture automatically restores the original function after the test.
+    # No manual restoration is needed here.
