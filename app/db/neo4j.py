@@ -122,4 +122,16 @@ async def init_db() -> None:
                     logger.error(f"Failed to create vector index '{name}': {e}")
                     raise
         
+        # Add specific entity name constraint for uniqueness
+        entity_name_constraint_query = "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE"
+        try:
+            await session.run(entity_name_constraint_query)
+            logger.debug(f"Constraint ensured: {entity_name_constraint_query[:60]}...")
+        except ClientError as e:
+            if _is_already_exists_error(e):
+                logger.debug("Entity name constraint already exists, skipping.")
+            else:
+                logger.error(f"Failed to create entity name constraint: {e}")
+                raise
+        
         logger.info("Neo4j constraints and indexes initialized successfully.")
