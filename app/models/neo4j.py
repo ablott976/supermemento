@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -57,3 +57,19 @@ class Document(BaseModel):
 
     # Note: The id (uuid) will need to be handled by the application when creating Neo4j nodes.
     # The embedding dimension (3072d) is a database-level consideration for potential future indexing.
+
+class Chunk(BaseModel):
+    """
+    Represents the :Chunk node label in Neo4j.
+    """
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier for the chunk")
+    content: str = Field(..., description="The actual text content of the chunk")
+    token_count: int = Field(..., description="Number of tokens in the chunk")
+    chunk_index: int = Field(..., description="Index of the chunk within its source document")
+    embedding: List[float] = Field(..., description="Embedding vector for the chunk")
+    container_tag: str = Field(..., description="Tag identifying the container or context of the chunk")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="JSON metadata associated with the chunk")
+    source_doc_id: UUID = Field(..., description="UUID of the source document this chunk belongs to")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the chunk was created")
+
+    # Note: The embedding dimension (3072d) is a database-level consideration for potential future indexing.
