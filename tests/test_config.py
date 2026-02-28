@@ -74,12 +74,23 @@ def test_neo4j_password_validation_fails_on_missing_password(monkeypatch):
     """Test that validate_config raises an error if NEO4J_PASSWORD is not set."""
     # Ensure RUNNING_TESTS is cleared temporarily for this test.
     monkeypatch.delenv("RUNNING_TESTS", raising=False)
+    # Ensure NEO4J_PASSWORD is also not set in the environment.
+    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
     
-    # Create a settings object with NEO4J_PASSWORD = None
+    # Create a settings object. It should have NEO4J_PASSWORD as None.
     s = Settings()
-    s.NEO4J_PASSWORD = None
+    assert s.NEO4J_PASSWORD is None
     
     # Explicitly call validate_config, it should raise ValueError
+    with pytest.raises(ValueError, match="NEO4J_PASSWORD environment variable must be set."):
+        validate_config(s)
+
+def test_neo4j_password_validation_fails_if_not_set_and_not_running_tests(monkeypatch):
+    """Explicitly verify that if RUNNING_TESTS is not set, validate_config fails when password is None."""
+    monkeypatch.delenv("RUNNING_TESTS", raising=False)
+    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
+    
+    s = Settings()
     with pytest.raises(ValueError, match="NEO4J_PASSWORD environment variable must be set."):
         validate_config(s)
 
