@@ -277,7 +277,7 @@ async def test_process_document_chunking_full_pipeline(mock_embedding_service, m
         assert chunk.token_count > 0, "Chunk should have a positive token count."
         assert chunk.source_doc_id == doc_id, "Chunk should be linked to the correct document."
 
-# NEW TEST: Test the full orchestration flow of process_document_chunking for 'conversation' documents
+# Test the full orchestration flow of process_document_chunking for 'conversation' documents
 @pytest.mark.asyncio
 async def test_process_document_chunking_conversation_pipeline(mock_embedding_service, mock_tiktoken):
     """
@@ -328,3 +328,44 @@ def test_count_tokens():
     
     # Test with only spaces
     assert count_tokens("   ") == 1, "String with only spaces should have 1 token based on mock behavior." # Adjusted expectation to 1
+
+# Test for embedding generation error handling
+@pytest.mark.asyncio
+async def test_generate_chunk_embeddings_error_handling(mock_embedding_service, mock_tiktoken):
+    """
+    Tests that generate_chunk_embeddings propagates exceptions from the embedding service.
+    """
+    # Create dummy chunks
+    doc_id = uuid.uuid4()
+    chunk1 = ChunkModel(
+        id=uuid.uuid4(), content="Chunk 1", token_count=2,
+        chunk_index=0, container_tag="test", metadata={}, source_doc_id=doc_id,
+        created_at=datetime.utcnow(), embedding=None
+    )
+    chunk2 = ChunkModel(
+        id=uuid.uuid4(), content="Chunk 2", token_count=2,
+        chunk_index=1, container_tag="test", metadata={}, source_doc_id=doc_id,
+        created_at=datetime.utcnow(), embedding=None
+    )
+    chunks = [chunk1, chunk2]
+
+    exception_to_raise = RuntimeError("Simulated embedding service failure")
+
+    # Temporarily replace the 'embed' method of the mock instance to raise an exception.
+    # The mock_embedding_service fixture patches EmbeddingService to return an instance of MockEmbeddingService.
+    # We need to modify the 'embed' method of THAT instance for this test.
+    
+    # Define a new async function that raises the exception
+    async def failing_embed_method(*args, **kwargs):
+        raise exception_to_raise
+    
+    # Replace the instance's embed method with our failing one
+    mock_embedding_service.embed = failing_embed_method
+
+    # Assert that calling generate_chunk_embeddings raises the expected exception
+    with pytest.raises(RuntimeError, match="Simulated embedding service failure"):
+        await generate_chunk_embeddings(chunks)
+
+    # Verify that original chunks were not modified (no embeddings added)
+    assert chunk1.embedding is None
+    assert chunk2.embedding is None
