@@ -1,9 +1,11 @@
 from app.config import Settings
 
-def test_settings_load():
+def test_settings_load(monkeypatch):
+    monkeypatch.setenv("NEO4J_PASSWORD", "test-password-default")
     settings = Settings()
     assert settings.MCP_SERVER_PORT == 8000
     assert settings.LOG_LEVEL == "info"
+    assert settings.NEO4J_PASSWORD == "test-password-default"
     assert settings.HAIKU_MODEL == "claude-3-haiku-20240307"
 
 def test_settings_env_override(monkeypatch):
@@ -11,12 +13,14 @@ def test_settings_env_override(monkeypatch):
     monkeypatch.setenv("MCP_SERVER_PORT", "9000")
     monkeypatch.setenv("LOG_LEVEL", "debug")
     monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
+    monkeypatch.setenv("NEO4J_PASSWORD", "test-password")
     monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test-key")
     
     settings = Settings()
     assert settings.MCP_SERVER_PORT == 9000
     assert settings.LOG_LEVEL == "debug"
     assert settings.NEO4J_URI == "bolt://localhost:7687"
+    assert settings.NEO4J_PASSWORD == "test-password"
     assert settings.FIRECRAWL_API_KEY == "fc-test-key"
 
 def test_settings_default_models():
