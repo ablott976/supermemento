@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     NEO4J_URI: str = "bolt://neo4j:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "password"
+    NEO4J_POOL_SIZE: int = 50
+    NEO4J_MAX_CONNECTION_LIFETIME: int = 3600  # 1 hour
+    NEO4J_CONNECTION_ACQUISITION_TIMEOUT: int = 60  # 60 seconds
 
     # API Keys
     OPENAI_API_KEY: str | None = None
