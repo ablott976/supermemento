@@ -1,10 +1,14 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 import uvicorn
 
 from app.config import settings
 from app.db.neo4j import close_neo4j_driver, get_neo4j_driver, init_db
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -25,8 +29,11 @@ async def health_check() -> dict[str, str]:
         driver = await get_neo4j_driver()
         await driver.verify_connectivity()
         neo4j_status = "connected"
-    except Exception as e:
-        neo4j_status = f"disconnected: {e}"
+    except Exception:
+        # Log detailed error internally but don't expose to client
+        # to prevent information disclosure (CWE-209)
+        logger.exception("Neo4j health check failed")
+        neo4j_status = "disconnected"
     return {
         "status": "ok",
         "neo4j": neo4j_status,

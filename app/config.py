@@ -1,3 +1,6 @@
+import warnings
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +30,18 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("NEO4J_PASSWORD")
+    @classmethod
+    def validate_neo4j_password(cls, v: str) -> str:
+        """Warn if default password is used in production."""
+        if v == "password":
+            warnings.warn(
+                "Security: Using default Neo4j password 'password'. "
+                "Set NEO4J_PASSWORD environment variable for production use.",
+                stacklevel=2,
+            )
+        return v
 
 
 settings = Settings()
