@@ -98,3 +98,13 @@ class Memory(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the memory was created")
 
     # Note: The embedding dimension (3072d) is a database-level consideration for potential future indexing.
+
+class User(BaseModel):
+    """
+    Represents the :User node label in Neo4j.
+    """
+    user_id: str = Field(..., description="Unique identifier for the user", unique=True) # Assuming unique constraint will be handled at DB level
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the user was created")
+    last_active_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the user was last active")
+
+    # Note: The 'unique' constraint for 'user_id' is a Neo4j constraint handled at the database level.
