@@ -34,19 +34,13 @@ def validate_config(settings: Settings):
     """
     Validates configuration settings.
     """
-    # Validate Neo4j password
+    # Raise an error if NEO4J_PASSWORD is not set
+    if settings.NEO4J_PASSWORD is None and not os.getenv("RUNNING_TESTS"):
+        raise ValueError("NEO4J_PASSWORD environment variable must be set.")
+
+    # Validate Neo4j password is not the weak default
     if settings.NEO4J_PASSWORD == 'password':
         raise ValueError("NEO4J_PASSWORD cannot be the weak default 'password'. Please set a strong password.")
-
-    if settings.NEO4J_PASSWORD is None and not os.getenv("RUNNING_TESTS"):
-        # Check if running in a CI environment where .env might not be present
-        # and the variable might be set differently. For local development or
-        # production, it must be explicitly set.
-        if not os.getenv("CI"):
-            raise ValueError("NEO4J_PASSWORD environment variable not set.")
-        # If in CI and not set, this might indicate a problem with the CI setup itself.
-        elif not os.getenv("NEO4J_PASSWORD"):
-            raise ValueError("NEO4J_PASSWORD environment variable not set in CI environment.")
 
 # Instantiate settings and validate
 settings = Settings()

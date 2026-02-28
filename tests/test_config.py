@@ -70,6 +70,19 @@ def test_neo4j_password_validation_passes_on_strong_password(monkeypatch):
     except ValueError:
         pytest.fail("validate_config raised ValueError unexpectedly with a strong password.")
 
+def test_neo4j_password_validation_fails_on_missing_password(monkeypatch):
+    """Test that validate_config raises an error if NEO4J_PASSWORD is not set."""
+    # Ensure RUNNING_TESTS is cleared temporarily for this test.
+    monkeypatch.delenv("RUNNING_TESTS", raising=False)
+    
+    # Create a settings object with NEO4J_PASSWORD = None
+    s = Settings()
+    s.NEO4J_PASSWORD = None
+    
+    # Explicitly call validate_config, it should raise ValueError
+    with pytest.raises(ValueError, match="NEO4J_PASSWORD environment variable must be set."):
+        validate_config(s)
+
 # Clean up the globally set RUNNING_TESTS environment variable after all tests.
 # monkeypatch within tests handles its own scope.
 if "RUNNING_TESTS" in os.environ and os.environ["RUNNING_TESTS"] == "1":
