@@ -20,6 +20,7 @@ Intelligent memory platform with smart relations, auto-forgetting, multimodal in
 Copy `.env.example` to `.env` and configure your API keys:
 ```bash
 cp .env.example .env
+# Ensure NEO4J_USER and NEO4J_PASSWORD are set in your .env file, as they are required for database access and have security constraints.
 ```
 
 ### Running with Docker
