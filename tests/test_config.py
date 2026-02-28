@@ -1,10 +1,11 @@
 import os
 import pytest
-from app.config import Settings, validate_neo4j_password
 
 # Set RUNNING_TESTS environment variable to bypass the check in app/config.py during import.
 # NEO4J_PASSWORD will be managed by monkeypatch within each test function.
 os.environ["RUNNING_TESTS"] = "1"
+
+from app.config import Settings, validate_config
 
 def test_settings_load(monkeypatch):
     """Test that default settings load correctly when NEO4J_PASSWORD is provided."""
@@ -42,7 +43,7 @@ def test_settings_default_models(monkeypatch):
     assert s.NEO4J_PASSWORD == "test_neo4j_password_for_pytest"
 
 def test_neo4j_password_validation_fails_on_weak_default(monkeypatch):
-    """Test that validate_neo4j_password raises an error for the weak default 'password'."""
+    """Test that validate_config raises an error for the weak default 'password'."""
     # Set NEO4J_PASSWORD to the weak default for this test.
     # RUNNING_TESTS is set globally, so app/config.py's initial check is bypassed.
     monkeypatch.setenv("NEO4J_PASSWORD", "password")
@@ -53,10 +54,10 @@ def test_neo4j_password_validation_fails_on_weak_default(monkeypatch):
     
     # Explicitly check the validation function, which should now be triggered.
     with pytest.raises(ValueError, match="NEO4J_PASSWORD cannot be the weak default 'password'. Please set a strong password."):
-        validate_neo4j_password(s)
+        validate_config(s)
 
 def test_neo4j_password_validation_passes_on_strong_password(monkeypatch):
-    """Test that validate_neo4j_password passes with a strong password."""
+    """Test that validate_config passes with a strong password."""
     # Set NEO4J_PASSWORD to a strong password for this test.
     monkeypatch.setenv("NEO4J_PASSWORD", "a_strong_and_secure_password_123!")
     
@@ -65,9 +66,9 @@ def test_neo4j_password_validation_passes_on_strong_password(monkeypatch):
     
     # Explicitly call the validation function, it should not raise an error.
     try:
-        validate_neo4j_password(s)
+        validate_config(s)
     except ValueError:
-        pytest.fail("validate_neo4j_password raised ValueError unexpectedly with a strong password.")
+        pytest.fail("validate_config raised ValueError unexpectedly with a strong password.")
 
 # Clean up the globally set RUNNING_TESTS environment variable after all tests.
 # monkeypatch within tests handles its own scope.
