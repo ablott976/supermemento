@@ -91,9 +91,11 @@ async def init_db() -> None:
         
         # 1. Create constraints idempotently (IF NOT EXISTS)
         # Includes Entity name uniqueness as per spec
+        constraint_count = 0
         for query in CONSTRAINTS:
             try:
                 await session.run(query)
+                constraint_count += 1
                 logger.debug(f"Constraint ensured: {query[:60]}...")
             except ClientError as e:
                 if _is_already_exists_error(e):
@@ -101,11 +103,14 @@ async def init_db() -> None:
                 else:
                     logger.error(f"Failed to create constraint: {e}")
                     raise
+        logger.info(f"Ensured {constraint_count} constraints.")
         
         # 2. Create standard indexes idempotently
+        index_count = 0
         for query in INDEXES:
             try:
                 await session.run(query)
+                index_count += 1
                 logger.debug(f"Index ensured: {query[:60]}...")
             except ClientError as e:
                 if _is_already_exists_error(e):
@@ -113,6 +118,7 @@ async def init_db() -> None:
                 else:
                     logger.error(f"Failed to create index: {e}")
                     raise
+        logger.info(f"Ensured {index_count} standard indexes.")
         
         # 3. Create vector indexes idempotently
         # Vector indexes don't support IF NOT EXISTS, so we check first then create
@@ -122,6 +128,7 @@ async def init_db() -> None:
             ("chunk_embeddings", LABEL_CHUNK, "embedding"),
         ]
         
+        vector_count = 0
         for name, label, prop in vector_indexes:
             try:
                 # Check if vector index already exists
@@ -130,6 +137,7 @@ async def init_db() -> None:
                 existing = await result.single()
                 if existing:
                     logger.debug(f"Vector index '{name}' already exists.")
+                    vector_count += 1
                     continue
                 
                 # Create vector index
@@ -137,12 +145,15 @@ async def init_db() -> None:
                     name, label, prop, settings.EMBEDDING_DIMENSION
                 )
                 await session.run(create_query)
+                vector_count += 1
                 logger.info(f"Vector index '{name}' created.")
             except ClientError as e:
                 if _is_already_exists_error(e) or "already exists" in str(e).lower():
                     logger.debug(f"Vector index '{name}' already exists.")
+                    vector_count += 1
                 else:
                     logger.error(f"Failed to create vector index '{name}': {e}")
                     raise
+        logger.info(f"Ensured {vector_count} vector indexes.")
         
         logger.info("Neo4j constraints and indexes initialized successfully.")
