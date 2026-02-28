@@ -110,8 +110,3 @@ def test_validate_config_skips_none_check_when_running_tests(monkeypatch):
     
     # This should NOT raise ValueError
     validate_config(s)
-
-# Clean up the globally set RUNNING_TESTS environment variable after all tests.
-# monkeypatch within tests handles its own scope.
-if "RUNNING_TESTS" in os.environ and os.environ["RUNNING_TESTS"] == "1":
-    del os.environ["RUNNING_TESTS"]
