@@ -58,3 +58,14 @@ def test_invalid_neo4j_password_length(monkeypatch):
     # Assert that the error message indicates a length issue for NEO4J_PASSWORD
     assert "NEO4J_PASSWORD" in str(excinfo.value)
     assert "String should have at least 8 characters" in str(excinfo.value)
+
+def test_valid_neo4j_password_configuration(monkeypatch):
+    """Test that configuration succeeds with a valid NEO4J_PASSWORD."""
+    valid_password = "a_very_secure_password_123"  # Meets min_length=8 requirement
+    monkeypatch.setenv("NEO4J_PASSWORD", valid_password)
+    
+    # Instantiate Settings. This should not raise a ValidationError.
+    settings = Settings()
+    
+    # Assert that the NEO4J_PASSWORD is correctly loaded
+    assert settings.NEO4J_PASSWORD == valid_password
