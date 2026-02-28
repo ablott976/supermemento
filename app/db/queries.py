@@ -1,4 +1,3 @@
-
 # Constraints queries
 CONSTRAINTS = [
     "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE",
@@ -10,10 +9,34 @@ CONSTRAINTS = [
 
 # Standard indexes queries
 INDEXES = [
+    # Memory indexes for filtering and retrieval
     "CREATE INDEX memory_container IF NOT EXISTS FOR (m:Memory) ON (m.container_tag)",
     "CREATE INDEX memory_latest IF NOT EXISTS FOR (m:Memory) ON (m.is_latest)",
     "CREATE INDEX memory_type IF NOT EXISTS FOR (m:Memory) ON (m.memory_type)",
-    "CREATE INDEX document_status IF NOT EXISTS FOR (d:Document) ON (d.status)"
+    "CREATE INDEX memory_source_doc IF NOT EXISTS FOR (m:Memory) ON (m.source_doc_id)",
+    "CREATE INDEX memory_forgotten_at IF NOT EXISTS FOR (m:Memory) ON (m.forgotten_at)",
+    "CREATE INDEX memory_valid_to IF NOT EXISTS FOR (m:Memory) ON (m.valid_to)",
+    "CREATE INDEX memory_created_at IF NOT EXISTS FOR (m:Memory) ON (m.created_at)",
+    
+    # Document indexes
+    "CREATE INDEX document_status IF NOT EXISTS FOR (d:Document) ON (d.status)",
+    "CREATE INDEX document_container IF NOT EXISTS FOR (d:Document) ON (d.container_tag)",
+    "CREATE INDEX document_created_at IF NOT EXISTS FOR (d:Document) ON (d.created_at)",
+    
+    # Chunk indexes for document retrieval and cleanup
+    "CREATE INDEX chunk_source_doc IF NOT EXISTS FOR (c:Chunk) ON (c.source_doc_id)",
+    "CREATE INDEX chunk_container IF NOT EXISTS FOR (c:Chunk) ON (c.container_tag)",
+    "CREATE INDEX chunk_created_at IF NOT EXISTS FOR (c:Chunk) ON (c.created_at)",
+    
+    # Entity indexes for filtering and access patterns
+    "CREATE INDEX entity_status IF NOT EXISTS FOR (e:Entity) ON (e.status)",
+    "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.entityType)",
+    "CREATE INDEX entity_created_at IF NOT EXISTS FOR (e:Entity) ON (e.created_at)",
+    "CREATE INDEX entity_last_accessed IF NOT EXISTS FOR (e:Entity) ON (e.last_accessed_at)",
+    
+    # User indexes for activity tracking
+    "CREATE INDEX user_last_active IF NOT EXISTS FOR (u:User) ON (u.last_active_at)",
+    "CREATE INDEX user_created_at IF NOT EXISTS FOR (u:User) ON (u.created_at)"
 ]
 
 # Vector index templates
@@ -38,19 +61,17 @@ RETURN u
 # Entity Queries
 CREATE_ENTITY = """
 MERGE (e:Entity {name: $name})
-ON CREATE SET 
-    e.entityType = $entityType,
-    e.observations = $observations,
-    e.embedding = $embedding,
-    e.status = $status,
-    e.access_count = $access_count,
-    e.created_at = $created_at,
-    e.updated_at = $updated_at,
-    e.last_accessed_at = $last_accessed_at
-ON MATCH SET
-    e.entityType = $entityType,
-    e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations],
-    e.updated_at = $updated_at
+ON CREATE SET e.entityType = $entityType, 
+              e.observations = $observations, 
+              e.embedding = $embedding, 
+              e.status = $status, 
+              e.access_count = $access_count, 
+              e.created_at = $created_at, 
+              e.updated_at = $updated_at, 
+              e.last_accessed_at = $last_accessed_at
+ON MATCH SET e.entityType = $entityType, 
+             e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations], 
+             e.updated_at = $updated_at
 RETURN e
 """
 
@@ -177,38 +198,4 @@ MATCH (e:Entity {name: $name})
 SET e.access_count = e.access_count + 1,
     e.last_accessed_at = $last_accessed_at
 RETURN e
-"""
-
-# Embedding Persistence Queries
-SET_ENTITY_EMBEDDING = """
-MATCH (e:Entity {name: $name})
-SET e.embedding = $embedding, e.updated_at = $updated_at
-RETURN e
-"""
-
-GET_ENTITY_EMBEDDING = """
-MATCH (e:Entity {name: $name})
-RETURN e.embedding as embedding
-"""
-
-SET_MEMORY_EMBEDDING = """
-MATCH (m:Memory {id: $id})
-SET m.embedding = $embedding
-RETURN m
-"""
-
-GET_MEMORY_EMBEDDING = """
-MATCH (m:Memory {id: $id})
-RETURN m.embedding as embedding
-"""
-
-SET_CHUNK_EMBEDDING = """
-MATCH (c:Chunk {id: $id})
-SET c.embedding = $embedding
-RETURN c
-"""
-
-GET_CHUNK_EMBEDDING = """
-MATCH (c:Chunk {id: $id})
-RETURN c.embedding as embedding
 """

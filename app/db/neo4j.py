@@ -1,11 +1,12 @@
 import logging
 from neo4j import AsyncGraphDatabase, AsyncDriver
+from neo4j.exceptions import ClientError
 from app.config import settings
 from app.db.queries import (
     CONSTRAINTS,
     INDEXES,
     get_vector_index_check_query,
-    get_vector_index_create_query
+    get_vector_index_create_query,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,18 @@ async def close_neo4j_driver() -> None:
         _driver = None
 
 
+def _is_already_exists_error(error: ClientError) -> bool:
+    """Check if a Neo4j ClientError indicates that a constraint or index already exists."""
+    already_exists_codes = {
+        "Neo.ClientError.Schema.ConstraintAlreadyExists",
+        "Neo.ClientError.Schema.IndexAlreadyExists",
+        "Neo.ClientError.Schema.EquivalentSchemaObjectAlreadyExists",
+    }
+    return error.code in already_exists_codes
+
+
 async def init_db() -> None:
-    """Initializes the Neo4j database with constraints and indexes."""
+    """Initializes the Neo4j database with constraints and indexes idempotently."""
     driver = await get_neo4j_driver()
     
     # Verify connectivity before proceeding
@@ -53,43 +64,64 @@ async def init_db() -> None:
     async with driver.session() as session:
         logger.info("Initializing Neo4j constraints and indexes...")
         
-        # Standard constraints
+        # Create constraints idempotently (IF NOT EXISTS handles most cases,
+        # but we catch AlreadyExists errors for robustness)
         for query in CONSTRAINTS:
             try:
                 await session.run(query)
-            except Exception as e:
-                logger.warning(f"Error running constraint query: {query}. Error: {e}")
-
-        # Standard indexes
+                logger.debug(f"Constraint ensured: {query[:60]}...")
+            except ClientError as e:
+                if _is_already_exists_error(e):
+                    logger.debug("Constraint already exists, skipping.")
+                else:
+                    logger.error(f"Failed to create constraint: {e}")
+                    raise
+        
+        # Create standard indexes idempotently
         for query in INDEXES:
             try:
                 await session.run(query)
-            except Exception as e:
-                logger.warning(f"Error running index query: {query}. Error: {e}")
-
-        # Vector indexes
+                logger.debug(f"Index ensured: {query[:60]}...")
+            except ClientError as e:
+                if _is_already_exists_error(e):
+                    logger.debug("Index already exists, skipping.")
+                else:
+                    logger.error(f"Failed to create index: {e}")
+                    raise
+        
+        # Create vector indexes idempotently
+        # Vector indexes don't support IF NOT EXISTS, so we check first then create,
+        # handling race conditions with error catching
         vector_indexes = [
             ("entity_embeddings", "Entity", "embedding"),
             ("memory_embeddings", "Memory", "embedding"),
             ("chunk_embeddings", "Chunk", "embedding")
         ]
-
+        
         for name, label, prop in vector_indexes:
             try:
-                # First check if it exists
+                # Check if vector index already exists
                 check_query = get_vector_index_check_query(name)
                 result = await session.run(check_query)
-                record = await result.single()
+                existing = await result.single()
                 
-                if not record:
-                    create_query = get_vector_index_create_query(
-                        name, label, prop, settings.EMBEDDING_DIMENSION
-                    )
-                    await session.run(create_query)
-                    logger.info(f"Vector index '{name}' created.")
+                if existing:
+                    logger.debug(f"Vector index '{name}' already exists.")
+                    continue
+                
+                # Create vector index
+                create_query = get_vector_index_create_query(
+                    name, label, prop, settings.EMBEDDING_DIMENSION
+                )
+                await session.run(create_query)
+                logger.info(f"Vector index '{name}' created.")
+                
+            except ClientError as e:
+                # Handle race conditions or "already exists" errors from the procedure
+                if _is_already_exists_error(e) or "already exists" in str(e).lower():
+                    logger.debug(f"Vector index '{name}' already exists.")
                 else:
-                    logger.info(f"Vector index '{name}' already exists.")
-            except Exception as e:
-                # Some Neo4j versions/configurations might throw error on CREATE if already exists 
-                # even with check, or SHOW INDEXES might behave differently.
-                logger.warning(f"Error creating vector index '{name}': {e}")
+                    logger.error(f"Failed to create vector index '{name}': {e}")
+                    raise
+        
+        logger.info("Neo4j constraints and indexes initialized successfully.")
