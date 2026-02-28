@@ -19,6 +19,7 @@ LABEL_MEMORY = "Memory"  # Properties: id, content, memory_type, container_tag, 
 LABEL_USER = "User"  # Properties: user_id, created_at, last_active_at
 
 # Relationship Types
+# These constants represent the Neo4j relationship types used throughout the system.
 REL_BELONGS_TO = "BELONGS_TO"
 REL_PART_OF = "PART_OF"
 REL_EXTRACTED_FROM = "EXTRACTED_FROM"
