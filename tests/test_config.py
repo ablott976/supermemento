@@ -73,3 +73,17 @@ def test_valid_neo4j_password_configuration(monkeypatch):
     
     # Assert that the NEO4J_PASSWORD is correctly loaded
     assert settings.NEO4J_PASSWORD == valid_password
+
+def test_empty_neo4j_password(monkeypatch):
+    """Test that configuration fails if NEO4J_PASSWORD is an empty string."""
+    # Set NEO4J_PASSWORD to an empty string
+    empty_password = ""
+    monkeypatch.setenv("NEO4J_PASSWORD", empty_password)
+    
+    # Expect a ValidationError when trying to instantiate Settings with an empty password
+    with pytest.raises(ValidationError) as excinfo:
+        Settings()
+        
+    # Assert that the error message indicates a length issue for NEO4J_PASSWORD
+    assert "NEO4J_PASSWORD" in str(excinfo.value)
+    assert "String should have at least 8 characters" in str(excinfo.value)
