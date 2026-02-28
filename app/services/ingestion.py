@@ -151,6 +151,8 @@ def chunk_conversation_by_turn(document: DocumentModel) -> List[ChunkModel]:
         ))
     return chunks
 
+    return chunks
+
 async def process_document_chunking(document: DocumentModel) -> List[ChunkModel]:
     """
     Orchestrates the document chunking process based on its content type.
