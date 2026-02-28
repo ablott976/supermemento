@@ -1,12 +1,11 @@
 """Tests for the document chunking pipeline."""
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4, UUID
 
 # Skip this entire module because app.services.chunking is missing (pre-existing issue)
 pytestmark = pytest.mark.skip(reason="Pre-existing ImportError: No module named 'app.services.chunking'")
-
-from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4, UUID
 
 try:
     from app.models.chunk import Chunk
