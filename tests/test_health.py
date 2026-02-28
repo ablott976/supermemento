@@ -32,7 +32,6 @@ def test_health_endpoint_calls_verify_connectivity(client, mock_neo4j_driver):
     """Verify that the health check actually calls driver.verify_connectivity()."""
     # Reset mock to count only calls from this specific request
     mock_neo4j_driver.verify_connectivity.reset_mock()
-    
     client.get("/health")
     mock_neo4j_driver.verify_connectivity.assert_called_once()
 

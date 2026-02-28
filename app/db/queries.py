@@ -40,11 +40,9 @@ def get_vector_index_check_query(name: str) -> str:
     """Returns a query to check if a vector index exists."""
     return f"SHOW INDEXES YIELD name WHERE name = '{name}'"
 
-
 def get_vector_index_create_query(name: str, label: str, prop: str, dimension: int) -> str:
     """Returns a query to create a vector index."""
     return f"CALL db.index.vector.createNodeIndex('{name}', '{label}', '{prop}', {dimension}, 'cosine')"
-
 
 # --- CRUD Queries ---
 
@@ -64,17 +62,8 @@ RETURN u
 # Entity Queries
 CREATE_ENTITY = """
 MERGE (e:Entity {name: $name})
-ON CREATE SET e.entityType = $entityType, 
-              e.observations = $observations, 
-              e.embedding = $embedding,
-              e.status = $status,
-              e.access_count = $access_count,
-              e.created_at = $created_at,
-              e.updated_at = $updated_at,
-              e.last_accessed_at = $last_accessed_at
-ON MATCH SET e.entityType = $entityType,
-             e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations],
-             e.updated_at = $updated_at
+ON CREATE SET e.entityType = $entityType, e.observations = $observations, e.embedding = $embedding, e.status = $status, e.access_count = $access_count, e.created_at = $created_at, e.updated_at = $updated_at, e.last_accessed_at = $last_accessed_at
+ON MATCH SET e.entityType = $entityType, e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations], e.updated_at = $updated_at
 RETURN e
 """
 
@@ -113,9 +102,9 @@ LIMIT $limit
 # Document Queries
 CREATE_DOCUMENT = """
 CREATE (d:Document {
-    id: $id, 
-    title: $title, 
-    source_url: $source_url, 
+    id: $id,
+    title: $title,
+    source_url: $source_url,
     content_type: $content_type,
     raw_content: $raw_content,
     container_tag: $container_tag,
@@ -139,20 +128,17 @@ RETURN d
 """
 
 GET_DOCUMENTS_BY_CONTAINER = """
-MATCH (d:Document {container_tag: $container_tag})
+MATCH (d:Document)-[:BELONGS_TO]->(:User {user_id: $user_id})
+WHERE d.container_tag = $container_tag
 RETURN d
 ORDER BY d.created_at DESC
+LIMIT $limit
 """
 
 UPDATE_DOCUMENT_STATUS = """
 MATCH (d:Document {id: $id})
 SET d.status = $status, d.updated_at = $updated_at
 RETURN d
-"""
-
-DELETE_DOCUMENT_CHUNKS = """
-MATCH (c:Chunk {source_doc_id: $doc_id})
-DETACH DELETE c
 """
 
 DELETE_DOCUMENT = """
@@ -177,24 +163,19 @@ RETURN c
 """
 
 LINK_CHUNK_TO_DOCUMENT = """
-MATCH (c:Chunk {id: $chunk_id})
+MATCH (c:Chunk {id: $id})
 MATCH (d:Document {id: $doc_id})
 MERGE (c)-[:PART_OF]->(d)
 """
 
 GET_CHUNKS_BY_DOCUMENT = """
-MATCH (c:Chunk {source_doc_id: $doc_id})
+MATCH (c:Chunk)-[:PART_OF]->(d:Document {id: $doc_id})
 RETURN c
 ORDER BY c.chunk_index ASC
 """
 
-GET_CHUNK = """
-MATCH (c:Chunk {id: $id})
-RETURN c
-"""
-
-DELETE_CHUNK = """
-MATCH (c:Chunk {id: $id})
+DELETE_CHUNKS_BY_DOCUMENT = """
+MATCH (c:Chunk)-[:PART_OF]->(d:Document {id: $doc_id})
 DETACH DELETE c
 """
 
@@ -218,23 +199,16 @@ RETURN m
 """
 
 LINK_MEMORY_TO_USER = """
-MATCH (m:Memory {id: $memory_id})
+MATCH (m:Memory {id: $id})
 MATCH (u:User {user_id: $user_id})
 MERGE (m)-[:BELONGS_TO]->(u)
 """
 
-LINK_MEMORY_TO_SOURCE = """
-MATCH (m:Memory {id: $memory_id})
-MATCH (source {id: $source_id})
-WHERE source:Document OR source:Chunk OR source:Entity
-MERGE (m)-[:EXTRACTED_FROM]->(source)
-"""
-
-LINK_MEMORY_PREDECESSOR = """
-MATCH (m:Memory {id: $memory_id})
-MATCH (prev:Memory {id: $predecessor_id})
+LINK_MEMORY_UPDATE = """
+MATCH (m:Memory {id: $id})
+MATCH (prev:Memory {id: $previous_id})
 MERGE (m)-[:UPDATES]->(prev)
-SET prev.is_latest = false, prev.valid_to = $valid_to
+SET prev.is_latest = false, prev.valid_to = $valid_from
 """
 
 GET_MEMORY = """
@@ -243,157 +217,78 @@ RETURN m
 """
 
 GET_LATEST_MEMORIES = """
-MATCH (m:Memory {container_tag: $container_tag, is_latest: true})
-WHERE m.forgotten_at IS NULL
-AND ($memory_type IS NULL OR m.memory_type = $memory_type)
+MATCH (m:Memory)-[:BELONGS_TO]->(:User {user_id: $user_id})
+WHERE m.is_latest = true AND m.forgotten_at IS NULL
 RETURN m
 ORDER BY m.created_at DESC
 LIMIT $limit
 """
 
-GET_MEMORIES_BY_SOURCE = """
-MATCH (m:Memory)-[:EXTRACTED_FROM]->({id: $source_id})
-WHERE m.is_latest = true AND m.forgotten_at IS NULL
+GET_MEMORIES_BY_CONTAINER = """
+MATCH (m:Memory)-[:BELONGS_TO]->(:User {user_id: $user_id})
+WHERE m.container_tag = $container_tag AND m.is_latest = true
 RETURN m
 ORDER BY m.created_at DESC
+LIMIT $limit
 """
 
 FORGET_MEMORY = """
 MATCH (m:Memory {id: $id})
-SET m.forgotten_at = $forgotten_at, m.is_latest = false, m.valid_to = $forgotten_at
+SET m.forgotten_at = $forgotten_at, m.is_latest = false
 RETURN m
 """
 
-INVALIDATE_OLD_MEMORIES = """
-MATCH (m:Memory {container_tag: $container_tag, memory_type: $memory_type})
-WHERE m.is_latest = true AND m.id <> $current_id
-SET m.is_latest = false, m.valid_to = $valid_to
-"""
-
-# Entity Relations
-CREATE_ENTITY_RELATION = """
+# Relationship Queries
+CREATE_ENTITY_RELATIONSHIP = """
 MATCH (e1:Entity {name: $from_name})
 MATCH (e2:Entity {name: $to_name})
-MERGE (e1)-[r:RELATES_TO {relation_type: $relation_type}]->(e2)
-ON CREATE SET r.created_at = $created_at, r.confidence = $confidence, r.metadata = $metadata
-ON MATCH SET r.updated_at = $created_at, r.confidence = $confidence, r.metadata = $metadata
+MERGE (e1)-[r:RELATES_TO {type: $rel_type}]->(e2)
+ON CREATE SET r.created_at = $created_at, r.weight = $weight
+ON MATCH SET r.weight = r.weight + $weight, r.updated_at = $created_at
 RETURN r
 """
 
-GET_ENTITY_RELATIONS = """
+GET_ENTITY_RELATIONSHIPS = """
 MATCH (e:Entity {name: $name})-[r:RELATES_TO]-(other:Entity)
-RETURN r, other
-ORDER BY r.confidence DESC
-LIMIT $limit
-"""
-
-GET_RELATED_ENTITIES = """
-MATCH (e:Entity {name: $name})-[:RELATES_TO*1..$depth]-(related:Entity)
-WHERE related.name <> $name
-RETURN DISTINCT related
+RETURN other, r
+ORDER BY r.weight DESC
 LIMIT $limit
 """
 
 # Vector Search Queries
-SEARCH_ENTITIES_VECTOR = """
-CALL db.index.vector.queryNodes('entity_embedding_index', $k, $embedding)
+VECTOR_SEARCH_ENTITY = """
+CALL db.index.vector.queryNodes($index_name, $k, $embedding)
 YIELD node, score
+WHERE node:Entity AND node.status = 'active'
 RETURN node, score
-"""
-
-SEARCH_CHUNKS_VECTOR = """
-CALL db.index.vector.queryNodes('chunk_embedding_index', $k, $embedding)
-YIELD node, score
-RETURN node, score
-"""
-
-SEARCH_MEMORIES_VECTOR = """
-CALL db.index.vector.queryNodes('memory_embedding_index', $k, $embedding)
-YIELD node, score
-WHERE node.forgotten_at IS NULL AND node.is_latest = true
-RETURN node, score
-"""
-
-# Hybrid Search (Vector + Filter)
-SEARCH_CHUNKS_BY_CONTAINER_VECTOR = """
-CALL db.index.vector.queryNodes('chunk_embedding_index', $k, $embedding)
-YIELD node, score
-WHERE node.container_tag = $container_tag
-RETURN node, score
-"""
-
-SEARCH_ENTITIES_BY_TYPE_VECTOR = """
-CALL db.index.vector.queryNodes('entity_embedding_index', $k, $embedding)
-YIELD node, score
-WHERE $entity_type IS NULL OR node.entityType = $entity_type
-RETURN node, score
-"""
-
-# Graph Traversal for SuperRAG
-GET_MEMORY_GRAPH = """
-MATCH (m:Memory {id: $memory_id})-[:EXTRACTED_FROM|RELATES_TO*1..2]-(connected)
-RETURN connected
-"""
-
-GET_ENTITY_SUBGRAPH = """
-MATCH path = (e:Entity {name: $name})-[:RELATES_TO*1..$depth]-(other:Entity)
-RETURN path
 LIMIT $limit
 """
 
-GET_DOCUMENT_GRAPH = """
-MATCH (d:Document {id: $doc_id})-[:PART_OF]-(c:Chunk)
-OPTIONAL MATCH (c)-[:EXTRACTED_FROM]-(m:Memory)
-OPTIONAL MATCH (d)-[:EXTRACTED_FROM]-(e:Entity)
-RETURN d, c, m, e
+VECTOR_SEARCH_MEMORY = """
+CALL db.index.vector.queryNodes($index_name, $k, $embedding)
+YIELD node, score
+WHERE node:Memory AND node.is_latest = true AND node.forgotten_at IS NULL
+RETURN node, score
+LIMIT $limit
 """
 
-# Cleanup and Maintenance Queries
-DELETE_OLD_MEMORIES = """
+VECTOR_SEARCH_CHUNK = """
+CALL db.index.vector.queryNodes($index_name, $k, $embedding)
+YIELD node, score
+WHERE node:Chunk
+RETURN node, score
+LIMIT $limit
+"""
+
+# Cleanup Queries
+DELETE_FORGOTTEN_MEMORIES = """
 MATCH (m:Memory)
-WHERE m.valid_to < $before_date AND m.forgotten_at IS NOT NULL
-WITH m LIMIT $batch_size
+WHERE m.forgotten_at < $before_date
 DETACH DELETE m
 """
 
-DELETE_ORPHANED_CHUNKS = """
-MATCH (c:Chunk)
-WHERE NOT (c)-[:PART_OF]->(:Document)
-WITH c LIMIT $batch_size
-DETACH DELETE c
-"""
-
-DELETE_ORPHANED_ENTITIES = """
+DELETE_INACTIVE_ENTITIES = """
 MATCH (e:Entity)
-WHERE NOT (e)-[:BELONGS_TO]->(:User)
-WITH e LIMIT $batch_size
+WHERE e.status = 'inactive' AND e.last_accessed_at < $before_date
 DETACH DELETE e
-"""
-
-# Stats Queries
-GET_ENTITY_STATS = """
-MATCH (e:Entity)
-RETURN count(e) as total_entities,
-       sum(e.access_count) as total_accesses,
-       avg(e.access_count) as avg_accesses
-"""
-
-GET_MEMORY_STATS = """
-MATCH (m:Memory)
-RETURN count(m) as total_memories,
-       sum(CASE WHEN m.is_latest = true THEN 1 ELSE 0 END) as latest_count,
-       sum(CASE WHEN m.forgotten_at IS NOT NULL THEN 1 ELSE 0 END) as forgotten_count
-"""
-
-GET_DOCUMENT_STATS = """
-MATCH (d:Document)
-RETURN count(d) as total_documents,
-       sum(CASE WHEN d.status = 'processed' THEN 1 ELSE 0 END) as processed_count
-"""
-
-GET_CHUNK_STATS = """
-MATCH (c:Chunk)
-RETURN count(c) as total_chunks,
-       sum(c.token_count) as total_tokens,
-       avg(c.token_count) as avg_tokens_per_chunk
 """

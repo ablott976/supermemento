@@ -123,33 +123,37 @@ async def init_db() -> None:
         # 3. Create vector indexes idempotently
         # Vector indexes don't support IF NOT EXISTS, so we check first then create
         vector_indexes = [
-            ("entity_embedding", LABEL_ENTITY, "embedding", settings.EMBEDDING_DIMENSION),
-            ("memory_embedding", LABEL_MEMORY, "embedding", settings.EMBEDDING_DIMENSION),
-            ("chunk_embedding", LABEL_CHUNK, "embedding", settings.EMBEDDING_DIMENSION),
+            ("entity_embedding", LABEL_ENTITY, "embedding"),
+            ("chunk_embedding", LABEL_CHUNK, "embedding"),
+            ("memory_embedding", LABEL_MEMORY, "embedding"),
         ]
         
-        vector_count = 0
-        for idx_name, label, prop, dimension in vector_indexes:
+        vector_index_count = 0
+        for name, label, prop in vector_indexes:
             try:
                 # Check if index exists
-                check_result = await session.run(get_vector_index_check_query(idx_name))
-                existing = await check_result.data()
+                check_query = get_vector_index_check_query(name)
+                result = await session.run(check_query)
+                records = await result.data()
+                await result.consume()
                 
-                if existing:
-                    logger.debug(f"Vector index '{idx_name}' already exists.")
-                    continue
-                
-                # Create index
-                create_query = get_vector_index_create_query(idx_name, label, prop, dimension)
-                await session.run(create_query)
-                vector_count += 1
-                logger.info(f"Created vector index: {idx_name}")
-                
+                if not records:
+                    # Index doesn't exist, create it
+                    create_query = get_vector_index_create_query(
+                        name, label, prop, settings.EMBEDDING_DIMENSION
+                    )
+                    await session.run(create_query)
+                    vector_index_count += 1
+                    logger.info(f"Created vector index: {name} on {label}.{prop}")
+                else:
+                    logger.debug(f"Vector index {name} already exists, skipping.")
+                    
             except ClientError as e:
                 if _is_already_exists_error(e):
-                    logger.debug(f"Vector index '{idx_name}' already exists (race condition).")
+                    logger.debug(f"Vector index {name} already exists (race condition), skipping.")
                 else:
-                    logger.error(f"Failed to create vector index {idx_name}: {e}")
+                    logger.error(f"Failed to create vector index {name}: {e}")
                     raise
         
-        logger.info(f"Ensured {vector_count} vector indexes.")
+        logger.info(f"Ensured {vector_index_count} vector indexes.")
+        logger.info("Neo4j database initialization complete.")
