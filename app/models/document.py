@@ -43,19 +43,19 @@ class DocumentCreate(DocumentBase):
 
 class Document(DocumentBase):
     """Neo4j Document node model representing ingested content."""
-
+    
     model_config = ConfigDict(from_attributes=True)
-
+    
     # Node identity
     id: UUID = Field(default_factory=uuid4)
-
+    
     # Temporal tracking
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
+    
     # Neo4j node definition
     __neo4j_label__: ClassVar[str] = "Document"
-
+    
     def to_neo4j_properties(self) -> dict[str, Any]:
         """Convert model to Neo4j node properties.
         
@@ -74,7 +74,7 @@ class Document(DocumentBase):
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
-
+    
     @classmethod
     def from_neo4j_node(cls, node: dict[str, Any]) -> "Document":
         """Create Document model from Neo4j node properties.

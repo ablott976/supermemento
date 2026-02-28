@@ -20,33 +20,33 @@ class EntityCreate(EntityBase):
 
 class Entity(EntityBase):
     """Neo4j Entity node model."""
-
+    
     model_config = ConfigDict(from_attributes=True)
-
+    
     # Node identity
     id: UUID = Field(default_factory=uuid4)
-
+    
     # Vector embedding for semantic search
     embedding: Optional[List[float]] = None
-
+    
     # Temporal tracking
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
+    
     # Access metrics
     access_count: int = 0
-
+    
     # Neo4j node definition
     __neo4j_label__: ClassVar[str] = "Entity"
-
+    
     @field_validator("embedding")
     @classmethod
     def validate_embedding_dimension(cls, v: Optional[List[float]]) -> Optional[List[float]]:
         if v is not None and len(v) != settings.EMBEDDING_DIMENSION:
             raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
         return v
-
+    
     def to_neo4j_properties(self) -> dict[str, Any]:
         """Convert model to Neo4j node properties.
         
@@ -67,7 +67,7 @@ class Entity(EntityBase):
             "last_accessed_at": self.last_accessed_at,
             "access_count": self.access_count,
         }
-
+    
     @classmethod
     def from_neo4j_node(cls, node: dict[str, Any]) -> "Entity":
         """Create Entity model from Neo4j node properties.

@@ -12,7 +12,8 @@ async def health_check() -> dict[str, str]:
         await driver.verify_connectivity()
         neo4j_status = "connected"
     except Exception as e:
-        neo4j_status = f"disconnected: {e}"
+        neo4j_status = f"disconnected: {str(e)}"
+
     return {
         "status": "ok",
         "neo4j": neo4j_status,

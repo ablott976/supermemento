@@ -19,7 +19,7 @@ class ChunkBase(BaseModel):
 
 class ChunkCreate(ChunkBase):
     embedding: List[float]
-
+    
     @field_validator("embedding")
     @classmethod
     def validate_embedding_dimension(cls, v: List[float]) -> List[float]:
@@ -30,28 +30,28 @@ class ChunkCreate(ChunkBase):
 
 class Chunk(ChunkBase):
     """Neo4j Chunk node model representing text segments for RAG."""
-
+    
     model_config = ConfigDict(from_attributes=True)
-
+    
     # Node identity
     id: UUID = Field(default_factory=uuid4)
-
+    
     # Vector embedding (required for chunks)
     embedding: List[float]
-
+    
     # Temporal tracking
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
+    
     # Neo4j node definition
     __neo4j_label__: ClassVar[str] = "Chunk"
-
+    
     @field_validator("embedding")
     @classmethod
     def validate_embedding_dimension(cls, v: List[float]) -> List[float]:
         if len(v) != settings.EMBEDDING_DIMENSION:
             raise ValueError(f"Embedding must have dimension {settings.EMBEDDING_DIMENSION}")
         return v
-
+    
     def to_neo4j_properties(self) -> dict[str, Any]:
         """Convert model to Neo4j node properties.
         
@@ -68,7 +68,7 @@ class Chunk(ChunkBase):
             "embedding": self.embedding,
             "created_at": self.created_at,
         }
-
+    
     @classmethod
     def from_neo4j_node(cls, node: dict[str, Any]) -> "Chunk":
         """Create Chunk model from Neo4j node properties.
