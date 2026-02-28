@@ -60,7 +60,7 @@ async def init_db() -> None:
     except Exception as e:
         logger.error(f"Failed to verify Neo4j connectivity: {e}")
         raise
-
+    
     async with driver.session() as session:
         logger.info("Initializing Neo4j constraints and indexes...")
         
@@ -95,7 +95,7 @@ async def init_db() -> None:
         vector_indexes = [
             ("entity_embeddings", "Entity", "embedding"),
             ("memory_embeddings", "Memory", "embedding"),
-            ("chunk_embeddings", "Chunk", "embedding")
+            ("chunk_embeddings", "Chunk", "embedding"),
         ]
         
         for name, label, prop in vector_indexes:
@@ -104,7 +104,6 @@ async def init_db() -> None:
                 check_query = get_vector_index_check_query(name)
                 result = await session.run(check_query)
                 existing = await result.single()
-                
                 if existing:
                     logger.debug(f"Vector index '{name}' already exists.")
                     continue
@@ -115,7 +114,6 @@ async def init_db() -> None:
                 )
                 await session.run(create_query)
                 logger.info(f"Vector index '{name}' created.")
-                
             except ClientError as e:
                 # Handle race conditions or "already exists" errors from the procedure
                 if _is_already_exists_error(e) or "already exists" in str(e).lower():

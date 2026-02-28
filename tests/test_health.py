@@ -6,9 +6,8 @@ from app.main import app
 @pytest.fixture
 def client(mock_neo4j_driver):
     """Create a TestClient with mocked Neo4j driver.
-    
-    The mock_neo4j_driver fixture patches get_neo4j_driver before the app
-    lifespan runs, ensuring init_db uses the mock during startup.
+    The mock_neo4j_driver fixture patches get_neo4j_driver before the app lifespan runs,
+    ensuring init_db uses the mock during startup.
     """
     return TestClient(app)
 

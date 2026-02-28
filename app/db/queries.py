@@ -61,17 +61,8 @@ RETURN u
 # Entity Queries
 CREATE_ENTITY = """
 MERGE (e:Entity {name: $name})
-ON CREATE SET e.entityType = $entityType, 
-              e.observations = $observations, 
-              e.embedding = $embedding, 
-              e.status = $status, 
-              e.access_count = $access_count, 
-              e.created_at = $created_at, 
-              e.updated_at = $updated_at, 
-              e.last_accessed_at = $last_accessed_at
-ON MATCH SET e.entityType = $entityType, 
-             e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations], 
-             e.updated_at = $updated_at
+ON CREATE SET e.entityType = $entityType, e.observations = $observations, e.embedding = $embedding, e.status = $status, e.access_count = $access_count, e.created_at = $created_at, e.updated_at = $updated_at, e.last_accessed_at = $last_accessed_at
+ON MATCH SET e.entityType = $entityType, e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations], e.updated_at = $updated_at
 RETURN e
 """
 
@@ -140,7 +131,8 @@ CREATE (m:Memory {
     valid_to: $valid_to,
     forgotten_at: $forgotten_at,
     source_doc_id: $source_doc_id,
-    created_at: $created_at
+    created_at: $created_at,
+    updated_at: $updated_at
 })
 RETURN m
 """
@@ -154,48 +146,5 @@ MERGE (m)-[:BELONGS_TO]->(u)
 LINK_MEMORY_TO_DOCUMENT = """
 MATCH (m:Memory {id: $id})
 MATCH (d:Document {id: $source_doc_id})
-MERGE (m)-[:EXTRACTED_FROM {extracted_at: $extracted_at}]->(d)
-"""
-
-# Relationship Queries
-CREATE_MEMORY_UPDATE = """
-MATCH (new:Memory {id: $new_id})
-MATCH (old:Memory {id: $old_id})
-MERGE (new)-[r:UPDATES {classified_at: $classified_at, confidence: $confidence}]->(old)
-SET old.is_latest = false
-"""
-
-CREATE_MEMORY_EXTEND = """
-MATCH (new:Memory {id: $new_id})
-MATCH (old:Memory {id: $old_id})
-MERGE (new)-[r:EXTENDS {classified_at: $classified_at, confidence: $confidence}]->(old)
-"""
-
-CREATE_MEMORY_DERIVE = """
-MATCH (derived:Memory {id: $derived_id})
-MATCH (m1:Memory {id: $m1_id})
-MATCH (m2:Memory {id: $m2_id})
-MERGE (derived)-[:DERIVES {classified_at: $classified_at, confidence: $confidence}]->(m1)
-MERGE (derived)-[:DERIVES {classified_at: $classified_at, confidence: $confidence}]->(m2)
-"""
-
-CREATE_ENTITY_RELATION = """
-MATCH (from:Entity {name: $from_name})
-MATCH (to:Entity {name: $to_name})
-MERGE (from)-[r:RELATES_TO {relationType: $relationType}]->(to)
-RETURN r
-"""
-
-ADD_OBSERVATIONS = """
-MATCH (e:Entity {name: $name})
-SET e.observations = e.observations + [obs IN $observations WHERE NOT obs IN e.observations],
-    e.updated_at = $updated_at
-RETURN e
-"""
-
-UPDATE_ENTITY_ACCESS = """
-MATCH (e:Entity {name: $name})
-SET e.access_count = e.access_count + 1,
-    e.last_accessed_at = $last_accessed_at
-RETURN e
+MERGE (m)-[:DERIVED_FROM]->(d)
 """
