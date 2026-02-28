@@ -25,7 +25,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD}
       - NEO4J_PLUGINS=["apoc"]
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u neo4j -p password 'RETURN 1'"]
