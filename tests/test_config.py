@@ -1,4 +1,6 @@
 from app.config import Settings
+from pydantic import ValidationError
+import pytest
 
 def test_settings_load(monkeypatch):
     monkeypatch.setenv("NEO4J_PASSWORD", "test-password-default")
@@ -30,3 +32,15 @@ def test_settings_default_models():
     assert settings.EMBEDDING_DIMENSION == 3072
     assert "claude-3-5-sonnet" in settings.SONNET_MODEL
     assert "claude-3-haiku" in settings.HAIKU_MODEL
+
+def test_missing_neo4j_password(monkeypatch):
+    """Test that configuration fails if NEO4J_PASSWORD is not set."""
+    # Ensure NEO4J_PASSWORD is not set in the environment for this test
+    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
+    
+    # Expect a ValidationError when trying to instantiate Settings without the required password
+    with pytest.raises(ValidationError) as excinfo:
+        Settings()
+    
+    # Optional: Add more specific checks on the error message if needed
+    # assert "NEO4J_PASSWORD" in str(excinfo.value)
