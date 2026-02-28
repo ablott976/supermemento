@@ -11,6 +11,13 @@ from app.db.queries import (
 
 logger = logging.getLogger(__name__)
 
+# Node Labels
+LABEL_ENTITY = "Entity"
+LABEL_DOCUMENT = "Document"
+LABEL_CHUNK = "Chunk"
+LABEL_MEMORY = "Memory"
+LABEL_USER = "User"
+
 # Global driver instance
 _driver: AsyncDriver | None = None
 
@@ -50,7 +57,15 @@ def _is_already_exists_error(error: ClientError) -> bool:
 
 
 async def init_db() -> None:
-    """Initializes the Neo4j database with constraints and indexes idempotently."""
+    """Initializes the Neo4j database with constraints and indexes idempotently.
+    
+    This follows the schema defined in docs/BLUEPRINT.md §3:
+    - Entity: name (unique), entityType, observations, embedding, status, etc.
+    - Document: id (unique), title, content, etc.
+    - Chunk: id (unique), content, embedding, etc.
+    - Memory: id (unique), content, embedding, is_latest, etc.
+    - User: user_id (unique)
+    """
     driver = await get_neo4j_driver()
     
     # Verify connectivity before proceeding
@@ -64,8 +79,8 @@ async def init_db() -> None:
     async with driver.session() as session:
         logger.info("Initializing Neo4j constraints and indexes...")
         
-        # Create constraints idempotently (IF NOT EXISTS handles most cases,
-        # but we catch AlreadyExists errors for robustness)
+        # 1. Create constraints idempotently (IF NOT EXISTS)
+        # Includes Entity name uniqueness as per spec
         for query in CONSTRAINTS:
             try:
                 await session.run(query)
@@ -77,7 +92,7 @@ async def init_db() -> None:
                     logger.error(f"Failed to create constraint: {e}")
                     raise
         
-        # Create standard indexes idempotently
+        # 2. Create standard indexes idempotently
         for query in INDEXES:
             try:
                 await session.run(query)
@@ -89,13 +104,12 @@ async def init_db() -> None:
                     logger.error(f"Failed to create index: {e}")
                     raise
         
-        # Create vector indexes idempotently
-        # Vector indexes don't support IF NOT EXISTS, so we check first then create,
-        # handling race conditions with error catching
+        # 3. Create vector indexes idempotently
+        # Vector indexes don't support IF NOT EXISTS, so we check first then create
         vector_indexes = [
-            ("entity_embeddings", "Entity", "embedding"),
-            ("memory_embeddings", "Memory", "embedding"),
-            ("chunk_embeddings", "Chunk", "embedding"),
+            ("entity_embeddings", LABEL_ENTITY, "embedding"),
+            ("memory_embeddings", LABEL_MEMORY, "embedding"),
+            ("chunk_embeddings", LABEL_CHUNK, "embedding"),
         ]
         
         for name, label, prop in vector_indexes:
@@ -115,23 +129,10 @@ async def init_db() -> None:
                 await session.run(create_query)
                 logger.info(f"Vector index '{name}' created.")
             except ClientError as e:
-                # Handle race conditions or "already exists" errors from the procedure
                 if _is_already_exists_error(e) or "already exists" in str(e).lower():
                     logger.debug(f"Vector index '{name}' already exists.")
                 else:
                     logger.error(f"Failed to create vector index '{name}': {e}")
                     raise
-        
-        # Add specific entity name constraint for uniqueness
-        entity_name_constraint_query = "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE"
-        try:
-            await session.run(entity_name_constraint_query)
-            logger.debug(f"Constraint ensured: {entity_name_constraint_query[:60]}...")
-        except ClientError as e:
-            if _is_already_exists_error(e):
-                logger.debug("Entity name constraint already exists, skipping.")
-            else:
-                logger.error(f"Failed to create entity name constraint: {e}")
-                raise
         
         logger.info("Neo4j constraints and indexes initialized successfully.")
