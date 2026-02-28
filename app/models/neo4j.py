@@ -1,7 +1,27 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
+from enum import Enum
+
+class ContentType(str, Enum):
+    text = "text"
+    url = "url"
+    pdf = "pdf"
+    image = "image"
+    video = "video"
+    audio = "audio"
+    conversation = "conversation"
+
+class DocumentStatus(str, Enum):
+    queued = "queued"
+    extracting = "extracting"
+    chunking = "chunking"
+    embedding = "embedding"
+    indexing = "indexing"
+    done = "done"
+    error = "error"
 
 class Entity(BaseModel):
     """
@@ -19,3 +39,21 @@ class Entity(BaseModel):
 
     # Note: The 'unique' constraint for 'name' is a Neo4j constraint handled at the database level.
     # The embedding dimension (3072d) is also a database-level consideration.
+
+class Document(BaseModel):
+    """
+    Represents the :Document node label in Neo4j.
+    """
+    id: UUID = Field(..., description="Unique identifier for the document")
+    title: str = Field(..., description="Title of the document")
+    source_url: Optional[str] = Field(None, description="URL of the source document, if applicable")
+    content_type: ContentType = Field(..., description="Type of the document content")
+    raw_content: str = Field(..., description="The raw content of the document")
+    container_tag: str = Field(..., description="Tag identifying the container or context of the document")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="JSON metadata associated with the document")
+    status: DocumentStatus = Field(default=DocumentStatus.queued, description="Status of the document processing pipeline")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the document was created")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when the document was last updated")
+
+    # Note: The id (uuid) will need to be handled by the application when creating Neo4j nodes.
+    # The embedding dimension (3072d) is a database-level consideration for potential future indexing.
