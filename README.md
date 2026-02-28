@@ -9,6 +9,7 @@ Intelligent memory platform with smart relations, auto-forgetting, multimodal in
 - **Health Check:** `/health` endpoint to verify application and Neo4j connectivity.
 - **Dockerized Setup:** Ready to run with Docker and Docker Compose.
 - **Verification Suite:** Comprehensive tests for configuration, models, and structure.
+- **Chunking Pipeline:** Implements semantic and conversational chunking strategies for documents, creating `:Chunk` nodes with embeddings.
 
 ## Setup
 
