@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,3 +31,16 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Add check for NEO4J_PASSWORD
+if settings.NEO4J_PASSWORD is None:
+    # Check if running in a CI environment where .env might not be present
+    # and the variable might be set differently. For local development or
+    # production, it must be explicitly set.
+    if not os.getenv("CI"): # Assuming CI might have other ways to set env vars
+        raise ValueError("NEO4J_PASSWORD environment variable not set.")
+    # If in CI and not set, this might indicate a problem with the CI setup itself.
+    # For now, we'll raise an error to be explicit about the missing credential.
+    elif not os.getenv("NEO4J_PASSWORD"): # Explicitly check again if CI is true but var is not set
+        raise ValueError("NEO4J_PASSWORD environment variable not set in CI environment.")
+
