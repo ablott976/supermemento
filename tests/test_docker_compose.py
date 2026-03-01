@@ -126,6 +126,6 @@ def test_neo4j_password_substitution_in_neo4j_auth():
             neo4j_auth_line = line
             break
     
-    assert neo4j_auth_line is not None, "neo4j service should have NEO4J_AUTH configuration"
+    assert neo4j_auth_line is not None, "neo4j service should have NEO4J_AUTH configured"
     assert "${NEO4J_PASSWORD" in neo4j_auth_line, \
         "NEO4J_AUTH should use NEO4J_PASSWORD environment variable substitution"
