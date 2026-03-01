@@ -1,3 +1,4 @@
+from app.db.utils import sanitize_identifier
 
 # Constraints queries
 CONSTRAINTS = [
@@ -19,7 +20,8 @@ INDEXES = [
 # Vector index templates
 def get_vector_index_check_query(name: str) -> str:
     """Returns a query to check if a vector index exists."""
-    return f"SHOW INDEXES YIELD name WHERE name = '{name}'"
+    safe_name = sanitize_identifier(name)
+    return f"SHOW INDEXES YIELD name WHERE name = '{safe_name}'"
 
 def get_vector_index_create_query(name: str, label: str, prop: str, dimension: int) -> str:
     """Returns a query to create a vector index."""
