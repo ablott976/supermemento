@@ -19,7 +19,7 @@ def test_docker_compose_uses_env_substitution():
     ]
     
     for var in required_substitutions:
-        # Check for ${VAR} or ${VAR:-default} syntax
+        # Check for ${VAR} or ${VAR:-default} syntax pattern
         pattern = f"${{{var}"
         assert pattern in content, f"docker-compose.yml should use environment variable substitution for {var}"
 
@@ -36,6 +36,7 @@ def test_docker_compose_has_default_values():
     assert "${NEO4J_URI:-" in content, "NEO4J_URI should have a default value"
     assert "${NEO4J_USER:-" in content, "NEO4J_USER should have a default value"
     assert "${NEO4J_PASSWORD:-" in content, "NEO4J_PASSWORD should have a default value"
+    
     # Port should have default
     assert "${MCP_SERVER_PORT:-" in content, "MCP_SERVER_PORT should have a default value"
 
@@ -125,6 +126,6 @@ def test_neo4j_password_substitution_in_neo4j_auth():
             neo4j_auth_line = line
             break
     
-    assert neo4j_auth_line is not None, "neo4j service should have NEO4J_AUTH configured"
+    assert neo4j_auth_line is not None, "neo4j service should have NEO4J_AUTH configuration"
     assert "${NEO4J_PASSWORD" in neo4j_auth_line, \
         "NEO4J_AUTH should use NEO4J_PASSWORD environment variable substitution"
