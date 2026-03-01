@@ -3,10 +3,21 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_csrf_protect import CsrfProtect
+from pydantic import BaseModel
 import uvicorn
 
 from app.config import settings
 from app.db.neo4j import close_neo4j_driver, get_neo4j_driver, init_db
+
+
+class CsrfSettings(BaseModel):
+    secret_key: str = settings.CSRF_SECRET_KEY
+
+
+@CsrfProtect.load_config
+def get_csrf_config() -> CsrfSettings:
+    return CsrfSettings()
 
 logger = logging.getLogger(__name__)
 

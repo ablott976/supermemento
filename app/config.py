@@ -15,12 +15,21 @@ class Settings(BaseSettings):
     # Server configuration
     MCP_SERVER_PORT: int = 8000
     LOG_LEVEL: str = "info"
+    CSRF_SECRET_KEY: str = "change-me-in-production"
 
     # AI Models (defaults from BLUEPRINT.md)
     EMBEDDING_MODEL: str = "text-embedding-3-large"
     EMBEDDING_DIMENSION: int = 3072
     SONNET_MODEL: str = "claude-3-5-sonnet-20240620"
     HAIKU_MODEL: str = "claude-3-haiku-20240307"
+
+    # APScheduler configuration
+    SCHEDULER_ENABLED: bool = True
+    SCHEDULER_MAX_WORKERS: int = 4
+    SCHEDULER_TIMEZONE: str = "UTC"
+    SCHEDULER_COALESCE: bool = True
+    SCHEDULER_MAX_INSTANCES: int = 1
+    SCHEDULER_MISFIRE_GRACE_TIME: int = 3600
 
     model_config = SettingsConfigDict(
         env_file=".env",
