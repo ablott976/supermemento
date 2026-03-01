@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI
-import uvicorn
 
 from app.config import settings
 from app.db.neo4j import close_neo4j_driver, get_neo4j_driver, init_db
@@ -40,4 +39,6 @@ async def health_check() -> dict[str, str]:
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=settings.MCP_SERVER_PORT)

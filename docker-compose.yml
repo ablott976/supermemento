@@ -3,12 +3,13 @@ version: '3.8'
 services:
   app:
     build: .
+    env_file: .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env file}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
@@ -18,23 +19,31 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+    security_opt:
+      - no-new-privileges:true
 
   neo4j:
     image: neo4j:5
+    env_file: .env
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
     environment:
-      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env file}
       - NEO4J_PLUGINS=["apoc"]
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      # Store password separately for healthcheck to avoid shell injection via NEO4J_AUTH parsing
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set in .env file}
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-password} 'RETURN 1'"]
+      # Use $$ to prevent Docker Compose interpolation, allowing container shell to expand
+      # This prevents password from being visible in 'docker inspect' output (CWE-214)
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_PASSWORD}\" 'RETURN 1'"]
       interval: 10s
       timeout: 5s
       retries: 5
     volumes:
       - neo4j_data:/data
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   neo4j_data:
