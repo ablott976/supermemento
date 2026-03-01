@@ -1,3 +1,7 @@
+import os
+os.environ.setdefault("RUNNING_TESTS", "1")
+os.environ.setdefault("NEO4J_PASSWORD", "test_neo4j_password_for_pytest")
+
 import pytest
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
