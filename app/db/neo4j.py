@@ -1,36 +1,34 @@
-import logging
+"""Neo4j database driver and connection management."""
 
-from neo4j import AsyncGraphDatabase
+from neo4j import AsyncDriver, AsyncGraphDatabase
 
 from app.config import settings
 
-logger = logging.getLogger(__name__)
-
-# Module-level driver singleton
-_driver = None
+_driver: AsyncDriver | None = None
 
 
-async def get_neo4j_driver():
-    """Get or create the Neo4j async driver singleton."""
+async def init_db() -> None:
+    """Initialize the Neo4j driver."""
+    global _driver
+    _driver = AsyncGraphDatabase.driver(
+        settings.NEO4J_URI,
+        auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+    )
+
+
+async def get_neo4j_driver() -> AsyncDriver:
+    """Get the Neo4j driver instance."""
     global _driver
     if _driver is None:
-        _driver = AsyncGraphDatabase.driver(
-            settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
-        )
+        await init_db()
+    if _driver is None:
+        raise RuntimeError("Failed to initialize Neo4j driver")
     return _driver
 
 
-async def close_neo4j_driver():
-    """Close the Neo4j driver if initialized."""
+async def close_neo4j_driver() -> None:
+    """Close the Neo4j driver."""
     global _driver
-    if _driver is not None:
+    if _driver:
         await _driver.close()
         _driver = None
-
-
-async def init_db():
-    """Initialize the database connection and verify connectivity."""
-    driver = await get_neo4j_driver()
-    await driver.verify_connectivity()
-    logger.info("Successfully connected to Neo4j")
