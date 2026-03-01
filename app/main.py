@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -6,10 +5,6 @@ import uvicorn
 
 from app.config import settings
 from app.db.neo4j import close_neo4j_driver, get_neo4j_driver, init_db
-
-# Configure logging
-logging.basicConfig(level=settings.LOG_LEVEL.upper())
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -31,8 +26,7 @@ async def health_check() -> dict[str, str]:
         await driver.verify_connectivity()
         neo4j_status = "connected"
     except Exception as e:
-        logger.error(f"Database connection failed: {e}", exc_info=True)
-        neo4j_status = "disconnected"
+        neo4j_status = f"disconnected: {e}"
     return {
         "status": "ok",
         "neo4j": neo4j_status,
