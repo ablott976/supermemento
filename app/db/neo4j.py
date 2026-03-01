@@ -1,5 +1,5 @@
 import logging
-from neo4j import AsyncGraphDatabase, AsyncDriver
+from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
 from neo4j.exceptions import ClientError
 from app.config import settings
 from app.db.queries import (
@@ -66,6 +66,36 @@ def _is_already_exists_error(error: ClientError) -> bool:
     return error.code in already_exists_codes
 
 
+async def _run_schema_queries(session: AsyncSession, queries: list[str], description: str) -> int:
+    """Execute a list of schema queries (constraints or indexes) idempotently.
+    
+    Args:
+        session: The Neo4j async session to use.
+        queries: List of Cypher query strings to execute.
+        description: Description for logging (e.g., "constraints" or "indexes").
+    
+    Returns:
+        int: The number of queries successfully executed.
+    
+    Raises:
+        ClientError: If a query fails for reasons other than already existing.
+    """
+    count = 0
+    for query in queries:
+        try:
+            await session.run(query)
+            count += 1
+            logger.debug(f"{description.capitalize()} ensured: {query[:60]}...")
+        except ClientError as e:
+            if _is_already_exists_error(e):
+                logger.debug(f"{description.capitalize()} already exists, skipping.")
+            else:
+                logger.error(f"Failed to create {description}: {e}")
+                raise
+    logger.info(f"Ensured {count} {description}.")
+    return count
+
+
 async def init_db() -> None:
     """Initializes the Neo4j database with constraints and indexes idempotently.
     
@@ -90,70 +120,38 @@ async def init_db() -> None:
         logger.info("Initializing Neo4j constraints and indexes...")
         
         # 1. Create constraints idempotently (IF NOT EXISTS)
-        # Includes Entity name uniqueness as per spec
-        constraint_count = 0
-        for query in CONSTRAINTS:
-            try:
-                await session.run(query)
-                constraint_count += 1
-                logger.debug(f"Constraint ensured: {query[:60]}...")
-            except ClientError as e:
-                if _is_already_exists_error(e):
-                    logger.debug("Constraint already exists, skipping.")
-                else:
-                    logger.error(f"Failed to create constraint: {e}")
-                    raise
-        logger.info(f"Ensured {constraint_count} constraints.")
+        await _run_schema_queries(session, CONSTRAINTS, "constraints")
         
         # 2. Create standard indexes idempotently
-        index_count = 0
-        for query in INDEXES:
-            try:
-                await session.run(query)
-                index_count += 1
-                logger.debug(f"Index ensured: {query[:60]}...")
-            except ClientError as e:
-                if _is_already_exists_error(e):
-                    logger.debug("Index already exists, skipping.")
-                else:
-                    logger.error(f"Failed to create index: {e}")
-                    raise
-        logger.info(f"Ensured {index_count} standard indexes.")
+        await _run_schema_queries(session, INDEXES, "standard indexes")
         
         # 3. Create vector indexes idempotently
         # Vector indexes don't support IF NOT EXISTS, so we check first then create
         vector_indexes = [
-            ("entity_embedding", LABEL_ENTITY, "embedding"),
-            ("chunk_embedding", LABEL_CHUNK, "embedding"),
-            ("memory_embedding", LABEL_MEMORY, "embedding"),
+            ("entity_embedding", LABEL_ENTITY, "embedding", settings.EMBEDDING_DIMENSION),
+            ("memory_embedding", LABEL_MEMORY, "embedding", settings.EMBEDDING_DIMENSION),
+            ("chunk_embedding", LABEL_CHUNK, "embedding", settings.EMBEDDING_DIMENSION),
         ]
         
-        vector_index_count = 0
-        for name, label, prop in vector_indexes:
+        vector_count = 0
+        for name, label, prop, dimension in vector_indexes:
             try:
                 # Check if index exists
                 check_query = get_vector_index_check_query(name)
                 result = await session.run(check_query)
                 records = await result.data()
-                await result.consume()
                 
                 if not records:
                     # Index doesn't exist, create it
-                    create_query = get_vector_index_create_query(
-                        name, label, prop, settings.EMBEDDING_DIMENSION
-                    )
+                    create_query = get_vector_index_create_query(name, label, prop, dimension)
                     await session.run(create_query)
-                    vector_index_count += 1
-                    logger.info(f"Created vector index: {name} on {label}.{prop}")
+                    vector_count += 1
+                    logger.debug(f"Vector index created: {name}")
                 else:
-                    logger.debug(f"Vector index {name} already exists, skipping.")
-                    
+                    logger.debug(f"Vector index already exists: {name}")
             except ClientError as e:
-                if _is_already_exists_error(e):
-                    logger.debug(f"Vector index {name} already exists (race condition), skipping.")
-                else:
-                    logger.error(f"Failed to create vector index {name}: {e}")
-                    raise
+                logger.error(f"Failed to create vector index {name}: {e}")
+                raise
         
-        logger.info(f"Ensured {vector_index_count} vector indexes.")
-        logger.info("Neo4j database initialization complete.")
+        logger.info(f"Ensured {vector_count} vector indexes.")
+        logger.info("Database initialization complete.")

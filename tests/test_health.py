@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 
+
 @pytest.fixture
 def client(mock_neo4j_driver):
     """Create a TestClient with mocked Neo4j driver.
@@ -11,6 +12,7 @@ def client(mock_neo4j_driver):
     """
     return TestClient(app)
 
+
 def test_read_health(client):
     """Test health endpoint returns 200 and correct status fields."""
     response = client.get("/health")
@@ -18,6 +20,7 @@ def test_read_health(client):
     data = response.json()
     assert data["status"] == "ok"
     assert data["neo4j"] == "connected"
+
 
 def test_health_endpoint_response_structure(client):
     """Verify health endpoint returns expected JSON structure."""
@@ -28,12 +31,14 @@ def test_health_endpoint_response_structure(client):
     assert "status" in data
     assert "neo4j" in data
 
+
 def test_health_endpoint_calls_verify_connectivity(client, mock_neo4j_driver):
     """Verify that the health check actually calls driver.verify_connectivity()."""
     # Reset mock to count only calls from this specific request
     mock_neo4j_driver.verify_connectivity.reset_mock()
     client.get("/health")
     mock_neo4j_driver.verify_connectivity.assert_called_once()
+
 
 def test_health_endpoint_content_type(client):
     """Verify health endpoint returns proper JSON content type."""
