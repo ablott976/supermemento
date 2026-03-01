@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -6,6 +7,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.db.neo4j import close_neo4j_driver, get_neo4j_driver, init_db
 
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -15,9 +17,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await close_neo4j_driver()
 
-
 app = FastAPI(title="Supermemento", lifespan=lifespan)
-
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
@@ -26,12 +26,12 @@ async def health_check() -> dict[str, str]:
         await driver.verify_connectivity()
         neo4j_status = "connected"
     except Exception as e:
-        neo4j_status = f"disconnected: {e}"
+        logger.error('Health check failed: %s', e, exc_info=True)
+        neo4j_status = 'disconnected'
     return {
         "status": "ok",
         "neo4j": neo4j_status,
     }
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=settings.MCP_SERVER_PORT)
