@@ -17,10 +17,12 @@ Intelligent memory platform with smart relations, auto-forgetting, multimodal in
 - Python 3.12+ (for local development)
 
 ### Environment Variables
-Copy `.env.example` to `.env` and configure your API keys:
+Copy `.env.example` to `.env` and configure your variables:
 ```bash
 cp .env.example .env
 ```
+
+> **Required:** `NEO4J_PASSWORD` must be set to a strong password. The application will refuse to start if this variable is missing or set to the weak default `password`.
 
 ### Running with Docker
 ```bash
