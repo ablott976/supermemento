@@ -26,6 +26,7 @@ export interface Memory {
   containerTag: string;
   isLatest: boolean;
   confidence: number;
+  originalConfidence?: number | null;
   embedding: number[];
   validFrom?: string | null;
   validTo?: string | null;
@@ -56,4 +57,18 @@ export interface MemoryRelation {
 export interface MemorySearchHit {
   memory: Memory;
   score: number;
+}
+
+/** Vector search hit for a chunk. */
+export interface ChunkSearchHit {
+  chunk: Chunk;
+  score: number;
+}
+
+/** Cached user profile. */
+export interface Profile {
+  containerTag: string;
+  static: string;
+  dynamic: string;
+  generatedAt: string;
 }

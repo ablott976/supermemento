@@ -7,7 +7,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
   ANTHROPIC_API_KEY: z.string().min(1),
   ANTHROPIC_MODEL: z.string().min(1).default("claude-haiku-4-5-20250315"),
-  OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-large")
+  OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-large"),
+  COHERE_API_KEY: z.string().min(1).optional(),
+  COHERE_RERANK_MODEL: z.string().min(1).default("rerank-v3.5")
 });
 
 /** Runtime application configuration loaded from environment variables. */
@@ -25,7 +27,9 @@ export function loadConfig(): AppConfig {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
-    OPENAI_EMBEDDING_MODEL: process.env.OPENAI_EMBEDDING_MODEL
+    OPENAI_EMBEDDING_MODEL: process.env.OPENAI_EMBEDDING_MODEL,
+    COHERE_API_KEY: process.env.COHERE_API_KEY,
+    COHERE_RERANK_MODEL: process.env.COHERE_RERANK_MODEL
   });
 
   if (!parsed.success) {

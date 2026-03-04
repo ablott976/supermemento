@@ -1,0 +1,172 @@
+import { ContentType, DocumentStatus } from "../../types/enums.js";
+import { Neo4jClient } from "../../db/neo4j-client.js";
+import { IngestionPipeline } from "../ingestion/pipeline.js";
+import { UrlExtractor } from "../ingestion/extractors/url-extractor.js";
+import { BaseConnector, type ConnectorDocument } from "./base-connector.js";
+
+/** URL crawler connector with content-change detection. */
+export class WebCrawlerConnector extends BaseConnector {
+  private readonly urls: string[];
+  private readonly containerTag: string;
+
+  /**
+   * Creates web crawler connector.
+   */
+  public constructor(
+    neo4jClient: Neo4jClient,
+    ingestionPipeline: IngestionPipeline,
+    urls: string[],
+    containerTag: string
+  ) {
+    super(neo4jClient, ingestionPipeline);
+    this.urls = urls;
+    this.containerTag = containerTag;
+  }
+
+  /**
+   * Fetches all configured URLs.
+   */
+  public async fetch(): Promise<ConnectorDocument[]> {
+    const extractor = new UrlExtractor();
+    const docs: ConnectorDocument[] = [];
+
+    for (const url of this.urls) {
+      const content = await extractor.extract({
+        id: "temp",
+        title: url,
+        contentType: ContentType.Url,
+        rawContent: "",
+        sourceUrl: url,
+        containerTag: this.containerTag,
+        metadata: {},
+        status: DocumentStatus.Queued,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      docs.push({
+        title: url,
+        content,
+        containerTag: this.containerTag,
+        sourceUrl: url,
+        metadata: {
+          crawledBy: "web_crawler",
+          fetchedAt: new Date().toISOString()
+        }
+      });
+    }
+
+    return docs;
+  }
+
+  /**
+   * Crawls every configured URL and ingests only changed content.
+   */
+  public async crawl(): Promise<{
+    crawled: number;
+    ingested: number;
+    skipped: number;
+    results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }>;
+  }> {
+    return this.crawlUrls(this.urls, this.containerTag);
+  }
+
+  /**
+   * Crawls one URL and ingests if changed.
+   * @param url URL to crawl.
+   * @param containerTag Target container.
+   */
+  public async crawlUrl(url: string, containerTag: string): Promise<{
+    status: "ingested" | "skipped";
+    documentId?: string;
+  }> {
+    const batch = await this.crawlUrls([url], containerTag);
+    const first = batch.results[0];
+    if (!first) {
+      return { status: "skipped" };
+    }
+    return {
+      status: first.status,
+      documentId: first.documentId
+    };
+  }
+
+  /**
+   * Crawls many URLs and ingests only changed content.
+   * @param urls URL list.
+   * @param containerTag Target container.
+   */
+  public async crawlUrls(
+    urls: string[],
+    containerTag: string
+  ): Promise<{
+    crawled: number;
+    ingested: number;
+    skipped: number;
+    results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }>;
+  }> {
+    const extractor = new UrlExtractor();
+    const results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }> = [];
+
+    for (const url of urls) {
+      const content = await extractor.extract({
+        id: "temp",
+        title: url,
+        contentType: ContentType.Url,
+        rawContent: "",
+        sourceUrl: url,
+        containerTag,
+        metadata: {},
+        status: DocumentStatus.Queued,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      const doc: ConnectorDocument = {
+        title: url,
+        content,
+        containerTag,
+        sourceUrl: url,
+        metadata: {
+          crawledBy: "web_crawler",
+          fetchedAt: new Date().toISOString()
+        }
+      };
+
+      const dedup = await this.dedup(doc);
+      if (dedup.isDuplicate) {
+        results.push({ url, status: "skipped" });
+        continue;
+      }
+
+      const ingestResult = await this.ingestionPipeline.ingest({
+        title: doc.title,
+        contentType: ContentType.Url,
+        rawContent: doc.content,
+        containerTag,
+        sourceUrl: doc.sourceUrl,
+        metadata: {
+          ...(doc.metadata ?? {}),
+          contentHash: dedup.contentHash,
+          lastCrawledAt: new Date().toISOString()
+        }
+      });
+
+      results.push({
+        url,
+        status: "ingested",
+        documentId: ingestResult.document.id
+      });
+    }
+
+    const ingested = results.filter((item) => item.status === "ingested").length;
+    const skipped = results.length - ingested;
+
+    return {
+      crawled: results.length,
+      ingested,
+      skipped,
+      results
+    };
+  }
+}

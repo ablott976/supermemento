@@ -3,11 +3,14 @@ import { v4 as uuidv4 } from "uuid";
 import type { AppConfig } from "../config.js";
 import { DocumentStatus, MemoryType, RelationType } from "../types/enums.js";
 import type {
+  Chunk,
+  ChunkSearchHit,
   Document,
   Memory,
   MemoryRelation,
   MemorySearchHit,
-  Metadata
+  Metadata,
+  Profile
 } from "../types/models.js";
 
 type DocumentCreateInput = {
@@ -46,6 +49,15 @@ type MemoryUpdateInput = {
   validFrom?: string | null;
   validTo?: string | null;
   forgottenAt?: string | null;
+};
+
+type ChunkCreateInput = {
+  content: string;
+  embedding: number[];
+  chunkIndex: number;
+  containerTag: string;
+  metadata?: Metadata;
+  sourceDocId: string;
 };
 
 /** Neo4j data access layer for Documents, Memories, and relations. */
@@ -266,6 +278,7 @@ export class Neo4jClient {
           containerTag: $containerTag,
           isLatest: true,
           confidence: $confidence,
+          originalConfidence: NULL,
           embedding: $embedding,
           validFrom: CASE WHEN $validFrom IS NULL THEN NULL ELSE datetime($validFrom) END,
           validTo: CASE WHEN $validTo IS NULL THEN NULL ELSE datetime($validTo) END,
@@ -327,6 +340,7 @@ export class Neo4jClient {
             containerTag: $containerTag,
             isLatest: true,
             confidence: 0.6,
+            originalConfidence: NULL,
             embedding: $embedding,
             validFrom: NULL,
             validTo: NULL,
@@ -503,6 +517,8 @@ export class Neo4jClient {
         YIELD node, score
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND ($isLatestOnly = false OR node.isLatest = true)
+          AND node.forgottenAt IS NULL
+          AND (node.validTo IS NULL OR node.validTo >= datetime())
           AND score >= $minScore
         RETURN node, score
         ORDER BY score DESC
@@ -519,6 +535,493 @@ export class Neo4jClient {
       return result.records.map((record) => ({
         memory: this.mapMemory(record.get("node")),
         score: Number(record.get("score"))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Performs vector search over memories with advanced filters.
+   * @param params Search parameters.
+   */
+  public async semanticSearchMemoriesAdvanced(params: {
+    embedding: number[];
+    containerTag?: string;
+    minScore?: number;
+    limit?: number;
+    isLatestOnly?: boolean;
+    memoryTypes?: MemoryType[];
+    includeExpired?: boolean;
+  }): Promise<MemorySearchHit[]> {
+    const session = this.driver.session();
+    const limit = params.limit ?? 10;
+    const memoryTypes = params.memoryTypes ?? [];
+
+    try {
+      const result = await session.run(
+        `
+        CALL db.index.vector.queryNodes('memory_embeddings', $limit, $embedding)
+        YIELD node, score
+        WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
+          AND ($isLatestOnly = false OR node.isLatest = true)
+          AND node.forgottenAt IS NULL
+          AND ($memoryTypesEmpty = true OR node.memoryType IN $memoryTypes)
+          AND ($includeExpired = true OR node.validTo IS NULL OR node.validTo >= datetime())
+          AND score >= $minScore
+        RETURN node, score
+        ORDER BY score DESC
+        `,
+        {
+          limit: neo4j.int(limit),
+          embedding: params.embedding,
+          containerTag: params.containerTag ?? null,
+          minScore: params.minScore ?? 0,
+          isLatestOnly: params.isLatestOnly ?? false,
+          memoryTypes,
+          memoryTypesEmpty: memoryTypes.length === 0,
+          includeExpired: params.includeExpired ?? false
+        }
+      );
+
+      return result.records.map((record) => ({
+        memory: this.mapMemory(record.get("node")),
+        score: Number(record.get("score"))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Creates a chunk node linked to its source document.
+   * @param input Chunk payload.
+   */
+  public async createChunk(input: ChunkCreateInput): Promise<Chunk> {
+    const session = this.driver.session();
+    const id = uuidv4();
+
+    try {
+      const result = await session.run(
+        `
+        MATCH (d:Document {id: $sourceDocId})
+        CREATE (c:Chunk {
+          id: $id,
+          content: $content,
+          embedding: $embedding,
+          chunkIndex: $chunkIndex,
+          containerTag: $containerTag,
+          metadata: $metadata,
+          sourceDocId: $sourceDocId
+        })
+        CREATE (c)-[:EXTRACTED_FROM]->(d)
+        RETURN c
+        `,
+        {
+          id,
+          content: input.content,
+          embedding: input.embedding,
+          chunkIndex: input.chunkIndex,
+          containerTag: input.containerTag,
+          metadata: input.metadata ?? {},
+          sourceDocId: input.sourceDocId
+        }
+      );
+
+      if (result.records.length === 0) {
+        throw new Error(`Document ${input.sourceDocId} not found; cannot create chunk`);
+      }
+
+      return this.mapChunk(result.records[0]?.get("c"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Creates many chunks in a single write transaction.
+   * @param chunks Chunk payloads.
+   */
+  public async createChunks(chunks: ChunkCreateInput[]): Promise<Chunk[]> {
+    if (chunks.length === 0) {
+      return [];
+    }
+
+    const session = this.driver.session();
+    try {
+      const rows = chunks.map((chunk) => ({
+        id: uuidv4(),
+        content: chunk.content,
+        embedding: chunk.embedding,
+        chunkIndex: chunk.chunkIndex,
+        containerTag: chunk.containerTag,
+        metadata: chunk.metadata ?? {},
+        sourceDocId: chunk.sourceDocId
+      }));
+
+      const result = await session.run(
+        `
+        UNWIND $rows AS row
+        MATCH (d:Document {id: row.sourceDocId})
+        CREATE (c:Chunk {
+          id: row.id,
+          content: row.content,
+          embedding: row.embedding,
+          chunkIndex: row.chunkIndex,
+          containerTag: row.containerTag,
+          metadata: row.metadata,
+          sourceDocId: row.sourceDocId
+        })
+        CREATE (c)-[:EXTRACTED_FROM]->(d)
+        RETURN c
+        ORDER BY c.chunkIndex ASC
+        `,
+        { rows }
+      );
+
+      return result.records.map((record) => this.mapChunk(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Performs vector search over chunk nodes.
+   * @param params Search parameters.
+   */
+  public async semanticSearchChunks(params: {
+    embedding: number[];
+    containerTag?: string;
+    minScore?: number;
+    limit?: number;
+  }): Promise<ChunkSearchHit[]> {
+    const session = this.driver.session();
+    const limit = params.limit ?? 10;
+
+    try {
+      const result = await session.run(
+        `
+        CALL db.index.vector.queryNodes('chunk_embeddings', $limit, $embedding)
+        YIELD node, score
+        WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
+          AND score >= $minScore
+        RETURN node, score
+        ORDER BY score DESC
+        `,
+        {
+          limit: neo4j.int(limit),
+          embedding: params.embedding,
+          containerTag: params.containerTag ?? null,
+          minScore: params.minScore ?? 0
+        }
+      );
+
+      return result.records.map((record) => ({
+        chunk: this.mapChunk(record.get("node")),
+        score: Number(record.get("score"))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Soft-deletes expired episode memories.
+   */
+  public async softDeleteExpiredEpisodes(): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory)
+        WHERE m.memoryType = $memoryType
+          AND m.validTo < datetime()
+          AND m.forgottenAt IS NULL
+        SET m.forgottenAt = datetime()
+        RETURN count(m) AS count
+        `,
+        { memoryType: MemoryType.Episode }
+      );
+      return Number(result.records[0]?.get("count") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Applies confidence decay to one memory type.
+   * @param memoryType Target memory type.
+   * @param halfLifeDays Half-life in days.
+   */
+  public async applyConfidenceDecay(memoryType: MemoryType, halfLifeDays: number): Promise<{
+    decayedCount: number;
+    softDeletedCount: number;
+  }> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory)
+        WHERE m.memoryType = $memoryType
+          AND m.forgottenAt IS NULL
+        WITH m,
+             coalesce(m.originalConfidence, m.confidence) AS baseConfidence,
+             toFloat(duration.between(m.createdAt, datetime()).days) AS daysSinceCreation
+        WITH m, baseConfidence, baseConfidence * (0.5 ^ (daysSinceCreation / $halfLifeDays)) AS newConfidence
+        SET m.originalConfidence = coalesce(m.originalConfidence, m.confidence),
+            m.confidence = newConfidence,
+            m.forgottenAt = CASE WHEN newConfidence < 0.1 THEN datetime() ELSE m.forgottenAt END
+        RETURN count(m) AS decayedCount,
+               sum(CASE WHEN newConfidence < 0.1 THEN 1 ELSE 0 END) AS softDeletedCount
+        `,
+        {
+          memoryType,
+          halfLifeDays
+        }
+      );
+
+      return {
+        decayedCount: Number(result.records[0]?.get("decayedCount") ?? 0),
+        softDeletedCount: Number(result.records[0]?.get("softDeletedCount") ?? 0)
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Reinforces a preference memory confidence.
+   * @param memoryId Memory id.
+   */
+  public async reinforcePreference(memoryId: string): Promise<Memory | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory {id: $id})
+        WHERE m.memoryType = $memoryType
+          AND m.forgottenAt IS NULL
+        SET m.confidence = CASE
+              WHEN m.confidence + 0.15 > 1.0 THEN 1.0
+              ELSE m.confidence + 0.15
+            END
+        RETURN m
+        `,
+        { id: memoryId, memoryType: MemoryType.Preference }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      return this.mapMemory(result.records[0]?.get("m"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Soft deletes a memory by id.
+   * @param memoryId Memory id.
+   */
+  public async softDeleteMemoryById(memoryId: string): Promise<boolean> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory {id: $id})
+        WHERE m.forgottenAt IS NULL
+        SET m.forgottenAt = datetime()
+        RETURN count(m) AS count
+        `,
+        { id: memoryId }
+      );
+      return Number(result.records[0]?.get("count") ?? 0) > 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Gets latest active memories for a container.
+   * @param containerTag Container tag.
+   */
+  public async getLatestMemoriesByContainer(containerTag: string): Promise<Memory[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory {containerTag: $containerTag})
+        WHERE m.isLatest = true
+          AND m.forgottenAt IS NULL
+        RETURN m
+        ORDER BY m.createdAt DESC
+        `,
+        { containerTag }
+      );
+
+      return result.records.map((record) => this.mapMemory(record.get("m")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Reads filter prompt configured for a container tag.
+   * @param containerTag Container tag.
+   */
+  public async getContainerFilterPrompt(containerTag: string): Promise<string | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:ContainerConfig {containerTag: $containerTag})
+        RETURN c.filterPrompt AS filterPrompt
+        LIMIT 1
+        `,
+        { containerTag }
+      );
+      if (result.records.length === 0) {
+        return null;
+      }
+      return this.nullableString(result.records[0]?.get("filterPrompt"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Stores generated user profile for a container.
+   * @param containerTag Container tag.
+   * @param staticProfile Static profile section.
+   * @param dynamicProfile Dynamic profile section.
+   * @param generatedAt ISO datetime.
+   */
+  public async upsertProfile(
+    containerTag: string,
+    staticProfile: string,
+    dynamicProfile: string,
+    generatedAt: string
+  ): Promise<Profile> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MERGE (p:Profile {containerTag: $containerTag})
+        SET p.static = $staticProfile,
+            p.dynamic = $dynamicProfile,
+            p.generatedAt = datetime($generatedAt)
+        RETURN p
+        `,
+        { containerTag, staticProfile, dynamicProfile, generatedAt }
+      );
+      return this.mapProfile(result.records[0]?.get("p"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Fetches cached profile by container tag.
+   * @param containerTag Container tag.
+   */
+  public async getProfile(containerTag: string): Promise<Profile | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        "MATCH (p:Profile {containerTag: $containerTag}) RETURN p LIMIT 1",
+        { containerTag }
+      );
+      if (result.records.length === 0) {
+        return null;
+      }
+      return this.mapProfile(result.records[0]?.get("p"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Finds a document by source URL.
+   * @param sourceUrl Source URL.
+   */
+  public async findDocumentBySourceUrl(sourceUrl: string): Promise<Document | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        "MATCH (d:Document {sourceUrl: $sourceUrl}) RETURN d ORDER BY d.updatedAt DESC LIMIT 1",
+        { sourceUrl }
+      );
+      if (result.records.length === 0) {
+        return null;
+      }
+      return this.mapDocument(result.records[0]?.get("d"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Finds a document by content hash and container.
+   * @param containerTag Container tag.
+   * @param contentHash SHA256 content hash.
+   */
+  public async findDocumentByContentHash(
+    containerTag: string,
+    contentHash: string
+  ): Promise<Document | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (d:Document {containerTag: $containerTag})
+        WHERE d.metadata.contentHash = $contentHash
+        RETURN d
+        ORDER BY d.updatedAt DESC
+        LIMIT 1
+        `,
+        { containerTag, contentHash }
+      );
+      if (result.records.length === 0) {
+        return null;
+      }
+      return this.mapDocument(result.records[0]?.get("d"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Lists crawled URLs and last crawl date.
+   * @param params Optional filters.
+   */
+  public async listCrawledUrls(params: {
+    containerTag?: string;
+    limit?: number;
+  }): Promise<Array<{ sourceUrl: string; lastCrawledAt: string | null; documentId: string }>> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (d:Document)
+        WHERE d.sourceUrl IS NOT NULL
+          AND ($containerTag IS NULL OR d.containerTag = $containerTag)
+        RETURN d.sourceUrl AS sourceUrl,
+               d.id AS documentId,
+               d.metadata.lastCrawledAt AS lastCrawledAt
+        ORDER BY d.updatedAt DESC
+        LIMIT $limit
+        `,
+        {
+          containerTag: params.containerTag ?? null,
+          limit: neo4j.int(params.limit ?? 100)
+        }
+      );
+
+      return result.records.map((record) => ({
+        sourceUrl: String(record.get("sourceUrl")),
+        documentId: String(record.get("documentId")),
+        lastCrawledAt: this.toNullableIsoString(record.get("lastCrawledAt"))
       }));
     } finally {
       await session.close();
@@ -629,12 +1132,39 @@ export class Neo4jClient {
       containerTag: String(props.containerTag),
       isLatest: Boolean(props.isLatest),
       confidence: Number(props.confidence),
+      originalConfidence:
+        props.originalConfidence === null || props.originalConfidence === undefined
+          ? null
+          : Number(props.originalConfidence),
       embedding: (props.embedding as number[]) ?? [],
       validFrom: this.toNullableIsoString(props.validFrom),
       validTo: this.toNullableIsoString(props.validTo),
       forgottenAt: this.toNullableIsoString(props.forgottenAt),
       createdAt: this.toIsoString(props.createdAt),
       sourceDocId: String(props.sourceDocId)
+    };
+  }
+
+  private mapChunk(nodeValue: unknown): Chunk {
+    const props = this.nodeProps(nodeValue);
+    return {
+      id: String(props.id),
+      content: String(props.content),
+      embedding: (props.embedding as number[]) ?? [],
+      chunkIndex: Number(props.chunkIndex),
+      containerTag: String(props.containerTag),
+      metadata: (props.metadata as Metadata) ?? {},
+      sourceDocId: String(props.sourceDocId)
+    };
+  }
+
+  private mapProfile(nodeValue: unknown): Profile {
+    const props = this.nodeProps(nodeValue);
+    return {
+      containerTag: String(props.containerTag),
+      static: String(props.static ?? ""),
+      dynamic: String(props.dynamic ?? ""),
+      generatedAt: this.toIsoString(props.generatedAt)
     };
   }
 

@@ -2,8 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { Neo4jClient } from "../db/neo4j-client.js";
-import { RelationType, type Memory } from "../types/index.js";
+import { MemoryType, RelationType, type Memory } from "../types/index.js";
 import { EmbeddingService } from "./embedding.js";
+import { ForgettingService } from "./forgetting.js";
 
 const CLASSIFICATION_SYSTEM_PROMPT = `Eres un clasificador de relaciones entre memorias. Dado un NUEVO HECHO y una lista de HECHOS EXISTENTES, determina para cada par qué relación aplica. Responde SOLO en JSON.
 
@@ -36,22 +37,26 @@ export class RelationClassifierService {
   private readonly model: string;
   private readonly neo4jClient: Neo4jClient;
   private readonly embeddingService: EmbeddingService;
+  private readonly forgettingService: ForgettingService;
 
   /**
    * Creates a relation classifier service.
    * @param config Parsed application configuration.
    * @param neo4jClient Database client.
    * @param embeddingService Embedding service for derived memories.
+   * @param forgettingService Forgetting service for preference reinforcement.
    */
   public constructor(
     config: AppConfig,
     neo4jClient: Neo4jClient,
-    embeddingService: EmbeddingService
+    embeddingService: EmbeddingService,
+    forgettingService: ForgettingService
   ) {
     this.anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
     this.model = config.ANTHROPIC_MODEL;
     this.neo4jClient = neo4jClient;
     this.embeddingService = embeddingService;
+    this.forgettingService = forgettingService;
   }
 
   /**
@@ -94,11 +99,17 @@ export class RelationClassifierService {
       }
 
       if (relation.relationType === "EXTEND") {
+        const targetMemory = filteredCandidates
+          .map((candidate) => candidate.memory)
+          .find((candidate) => candidate.id === relation.existingMemoryId);
         await this.neo4jClient.createMemoryRelation(
           newMemory.id,
           relation.existingMemoryId,
           RelationType.Extends
         );
+        if (targetMemory?.memoryType === MemoryType.Preference) {
+          await this.forgettingService.reinforcePreference(targetMemory.id);
+        }
         applied.push({ relationType: "EXTEND", existingMemoryId: relation.existingMemoryId });
         continue;
       }

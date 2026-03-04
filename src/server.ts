@@ -11,7 +11,13 @@ import { loadConfig } from "./config.js";
 import { Neo4jClient } from "./db/neo4j-client.js";
 import { setupSchema } from "./schema/setup-schema.js";
 import { EmbeddingService } from "./services/embedding.js";
+import { ForgettingService } from "./services/forgetting.js";
+import { IngestionPipeline } from "./services/ingestion/pipeline.js";
+import { MemoryExtractorService } from "./services/ingestion/memory-extractor.js";
+import { ProfileService } from "./services/profiles/profile-service.js";
 import { RelationClassifierService } from "./services/relation-classifier.js";
+import { SearchService } from "./services/search/search-service.js";
+import { WebCrawlerConnector } from "./services/connectors/web-crawler.js";
 import { ContentType, DocumentStatus, MemoryType } from "./types/index.js";
 
 const createMemoryArgsSchema = z.object({
@@ -27,8 +33,13 @@ const createMemoryArgsSchema = z.object({
 const semanticSearchArgsSchema = z.object({
   query: z.string().min(1),
   containerTag: z.string().min(1).optional(),
-  minSimilarity: z.number().min(0).max(1).default(0.6),
-  limit: z.number().int().min(1).max(100).default(10)
+  searchMode: z.enum(["memory", "rag", "hybrid"]).default("hybrid"),
+  rerank: z.boolean().default(false),
+  rewriteQuery: z.boolean().default(false),
+  limit: z.number().int().min(1).max(100).default(10),
+  min_similarity: z.number().min(0).max(1).default(0.6),
+  memoryTypes: z.array(z.nativeEnum(MemoryType)).optional(),
+  includeExpired: z.boolean().default(false)
 });
 
 const createDocumentArgsSchema = z.object({
@@ -39,6 +50,33 @@ const createDocumentArgsSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   sourceUrl: z.string().url().optional(),
   filePath: z.string().optional()
+});
+
+const ingestDocumentArgsSchema = z.object({
+  content: z.string().min(1),
+  contentType: z.nativeEnum(ContentType),
+  containerTag: z.string().min(1),
+  title: z.string().min(1).optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
+const ingestUrlArgsSchema = z.object({
+  url: z.string().url(),
+  containerTag: z.string().min(1),
+  title: z.string().min(1).optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
+const ingestConversationArgsSchema = z.object({
+  messages: z.array(
+    z.object({
+      speaker: z.string().min(1),
+      message: z.string().min(1)
+    })
+  ),
+  containerTag: z.string().min(1),
+  title: z.string().min(1).optional(),
+  metadata: z.record(z.unknown()).optional()
 });
 
 const getDocumentStatusArgsSchema = z.object({
@@ -62,12 +100,42 @@ const getMemoryRelationsArgsSchema = z.object({
   memoryId: z.string().uuid()
 });
 
+const forgetMemoryArgsSchema = z.object({
+  memoryId: z.string().uuid()
+});
+
+const getUserProfileArgsSchema = z.object({
+  containerTag: z.string().min(1),
+  regenerate: z.boolean().default(false),
+  includeSearch: z.boolean().default(false)
+});
+
+const crawlUrlArgsSchema = z.object({
+  url: z.string().url(),
+  containerTag: z.string().min(1)
+});
+
+const crawlUrlsArgsSchema = z.object({
+  urls: z.array(z.string().url()).min(1),
+  containerTag: z.string().min(1)
+});
+
+const listCrawledUrlsArgsSchema = z.object({
+  containerTag: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(500).default(100)
+});
+
 /** Supermemento MCP server implementation. */
 export class SupermementoServer {
   private readonly server: Server;
   private readonly neo4jClient: Neo4jClient;
   private readonly embeddingService: EmbeddingService;
   private readonly relationClassifierService: RelationClassifierService;
+  private readonly forgettingService: ForgettingService;
+  private readonly memoryExtractorService: MemoryExtractorService;
+  private readonly ingestionPipeline: IngestionPipeline;
+  private readonly searchService: SearchService;
+  private readonly profileService: ProfileService;
 
   /**
    * Creates the MCP server and internal services.
@@ -76,16 +144,27 @@ export class SupermementoServer {
     const config = loadConfig();
     this.neo4jClient = new Neo4jClient(config);
     this.embeddingService = new EmbeddingService(config);
+    this.forgettingService = new ForgettingService(this.neo4jClient);
     this.relationClassifierService = new RelationClassifierService(
       config,
       this.neo4jClient,
-      this.embeddingService
+      this.embeddingService,
+      this.forgettingService
     );
+    this.memoryExtractorService = new MemoryExtractorService(config);
+    this.ingestionPipeline = new IngestionPipeline(
+      this.neo4jClient,
+      this.embeddingService,
+      this.relationClassifierService,
+      this.memoryExtractorService
+    );
+    this.searchService = new SearchService(config, this.neo4jClient, this.embeddingService);
+    this.profileService = new ProfileService(config, this.neo4jClient);
 
     this.server = new Server(
       {
         name: "supermemento-mcp",
-        version: "0.1.0"
+        version: "0.2.0"
       },
       {
         capabilities: {
@@ -119,18 +198,33 @@ export class SupermementoServer {
         {
           name: "create_memory",
           description:
-            "Create a Memory node, generate embedding, and run Phase 1 intelligent relation classification",
+            "Create a Memory node, generate embedding, and run intelligent relation classification",
           inputSchema: zodToJsonSchema(createMemoryArgsSchema)
         },
         {
           name: "semantic_search",
-          description: "Search memories by vector similarity with optional containerTag filter",
+          description: "SuperRAG semantic search with memory/rag/hybrid modes, rewriting, and reranking",
           inputSchema: zodToJsonSchema(semanticSearchArgsSchema)
         },
         {
           name: "create_document",
           description: "Create a Document node with queued status",
           inputSchema: zodToJsonSchema(createDocumentArgsSchema)
+        },
+        {
+          name: "ingest_document",
+          description: "Ingest a document through full extraction/chunking/memory/index pipeline",
+          inputSchema: zodToJsonSchema(ingestDocumentArgsSchema)
+        },
+        {
+          name: "ingest_url",
+          description: "Fetch URL content and run the full ingestion pipeline",
+          inputSchema: zodToJsonSchema(ingestUrlArgsSchema)
+        },
+        {
+          name: "ingest_conversation",
+          description: "Ingest conversation messages and run full pipeline",
+          inputSchema: zodToJsonSchema(ingestConversationArgsSchema)
         },
         {
           name: "get_document_status",
@@ -151,6 +245,40 @@ export class SupermementoServer {
           name: "get_memory_relations",
           description: "Get all relations connected to a memory",
           inputSchema: zodToJsonSchema(getMemoryRelationsArgsSchema)
+        },
+        {
+          name: "run_maintenance",
+          description: "Run automatic forgetting maintenance cycle",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            additionalProperties: false
+          }
+        },
+        {
+          name: "forget_memory",
+          description: "Manually soft-delete a memory by ID",
+          inputSchema: zodToJsonSchema(forgetMemoryArgsSchema)
+        },
+        {
+          name: "get_user_profile",
+          description: "Get or regenerate static+dynamic user profile",
+          inputSchema: zodToJsonSchema(getUserProfileArgsSchema)
+        },
+        {
+          name: "crawl_url",
+          description: "One-shot crawl of a URL and ingest if changed",
+          inputSchema: zodToJsonSchema(crawlUrlArgsSchema)
+        },
+        {
+          name: "crawl_urls",
+          description: "Batch crawl multiple URLs and ingest changed content",
+          inputSchema: zodToJsonSchema(crawlUrlsArgsSchema)
+        },
+        {
+          name: "list_crawled_urls",
+          description: "List URLs that have been crawled with last crawl date",
+          inputSchema: zodToJsonSchema(listCrawledUrlsArgsSchema)
         },
         {
           name: "setup_schema",
@@ -189,15 +317,8 @@ export class SupermementoServer {
 
           case "semantic_search": {
             const input = semanticSearchArgsSchema.parse(args);
-            const queryEmbedding = await this.embeddingService.generateEmbedding(input.query);
-            const hits = await this.neo4jClient.semanticSearchMemories({
-              embedding: queryEmbedding,
-              containerTag: input.containerTag,
-              minScore: input.minSimilarity,
-              limit: input.limit,
-              isLatestOnly: true
-            });
-            return asJson({ query: input.query, results: hits });
+            const response = await this.searchService.search(input);
+            return asJson(response);
           }
 
           case "create_document": {
@@ -214,13 +335,55 @@ export class SupermementoServer {
             return asJson({ document });
           }
 
+          case "ingest_document": {
+            const input = ingestDocumentArgsSchema.parse(args);
+            const result = await this.ingestionPipeline.ingest({
+              title: input.title ?? `Ingested ${input.contentType}`,
+              contentType: input.contentType,
+              rawContent: input.content,
+              containerTag: input.containerTag,
+              metadata: input.metadata
+            });
+            return asJson(result);
+          }
+
+          case "ingest_url": {
+            const input = ingestUrlArgsSchema.parse(args);
+            const result = await this.ingestionPipeline.ingest({
+              title: input.title ?? input.url,
+              contentType: ContentType.Url,
+              rawContent: input.url,
+              containerTag: input.containerTag,
+              sourceUrl: input.url,
+              metadata: input.metadata
+            });
+            return asJson(result);
+          }
+
+          case "ingest_conversation": {
+            const input = ingestConversationArgsSchema.parse(args);
+            const result = await this.ingestionPipeline.ingest({
+              title: input.title ?? "Conversation Ingestion",
+              contentType: ContentType.Conversation,
+              rawContent: JSON.stringify(input.messages),
+              containerTag: input.containerTag,
+              metadata: input.metadata
+            });
+            return asJson(result);
+          }
+
           case "get_document_status": {
             const input = getDocumentStatusArgsSchema.parse(args);
             const document = await this.neo4jClient.getDocument(input.documentId);
             if (!document) {
               return asError(`Document not found: ${input.documentId}`);
             }
-            return asJson({ documentId: document.id, status: document.status, updatedAt: document.updatedAt });
+            return asJson({
+              documentId: document.id,
+              status: document.status,
+              updatedAt: document.updatedAt,
+              metadata: document.metadata
+            });
           }
 
           case "list_documents": {
@@ -239,6 +402,74 @@ export class SupermementoServer {
             const input = getMemoryRelationsArgsSchema.parse(args);
             const relations = await this.neo4jClient.getMemoryRelations(input.memoryId);
             return asJson({ memoryId: input.memoryId, count: relations.length, relations });
+          }
+
+          case "run_maintenance": {
+            const stats = await this.forgettingService.runMaintenanceCycle();
+            return asJson(stats);
+          }
+
+          case "forget_memory": {
+            const input = forgetMemoryArgsSchema.parse(args);
+            const forgotten = await this.forgettingService.forgetMemory(input.memoryId);
+            return asJson({ memoryId: input.memoryId, forgotten });
+          }
+
+          case "get_user_profile": {
+            const input = getUserProfileArgsSchema.parse(args);
+            const profile = input.regenerate
+              ? await this.profileService.generateProfile(input.containerTag)
+              : await this.profileService.getProfile(input.containerTag);
+
+            if (!input.includeSearch) {
+              return asJson(profile);
+            }
+
+            const related = await this.searchService.search({
+              query: `${profile.static}\n${profile.dynamic}`,
+              containerTag: input.containerTag,
+              searchMode: "hybrid",
+              limit: 5,
+              min_similarity: 0.4,
+              rerank: false,
+              rewriteQuery: false,
+              includeExpired: false
+            });
+
+            return asJson({
+              ...profile,
+              relatedResults: related.results
+            });
+          }
+
+          case "crawl_url": {
+            const input = crawlUrlArgsSchema.parse(args);
+            const connector = new WebCrawlerConnector(
+              this.neo4jClient,
+              this.ingestionPipeline,
+              [input.url],
+              input.containerTag
+            );
+            const result = await connector.crawlUrl(input.url, input.containerTag);
+            return asJson({ url: input.url, ...result });
+          }
+
+          case "crawl_urls": {
+            const input = crawlUrlsArgsSchema.parse(args);
+            const connector = new WebCrawlerConnector(
+              this.neo4jClient,
+              this.ingestionPipeline,
+              input.urls,
+              input.containerTag
+            );
+            const result = await connector.crawlUrls(input.urls, input.containerTag);
+            return asJson(result);
+          }
+
+          case "list_crawled_urls": {
+            const input = listCrawledUrlsArgsSchema.parse(args);
+            const urls = await this.neo4jClient.listCrawledUrls(input);
+            return asJson({ count: urls.length, urls });
           }
 
           case "setup_schema": {
@@ -261,7 +492,9 @@ export class SupermementoServer {
  * Converts a zod schema to a JSON schema object accepted by MCP tool definitions.
  * @param schema zod schema.
  */
-function zodToJsonSchema(schema: z.AnyZodObject): { type: "object"; properties?: Record<string, object>; required?: string[]; [key: string]: unknown } {
+function zodToJsonSchema(
+  schema: z.AnyZodObject
+): { type: "object"; properties?: Record<string, object>; required?: string[]; [key: string]: unknown } {
   const shape = schema.shape;
   const properties: Record<string, object> = {};
   const required: string[] = [];
@@ -282,7 +515,9 @@ function zodToJsonSchema(schema: z.AnyZodObject): { type: "object"; properties?:
   };
 }
 
-function mapZodType(type: z.ZodTypeAny): { schema: Record<string, object | string | boolean | string[]>; required: boolean } {
+function mapZodType(
+  type: z.ZodTypeAny
+): { schema: Record<string, unknown>; required: boolean } {
   const optional = type instanceof z.ZodOptional || type instanceof z.ZodDefault;
   const target = type instanceof z.ZodOptional || type instanceof z.ZodDefault ? type._def.innerType : type;
 
@@ -308,9 +543,28 @@ function mapZodType(type: z.ZodTypeAny): { schema: Record<string, object | strin
     };
   }
 
+  if (target instanceof z.ZodArray) {
+    return {
+      schema: {
+        type: "array",
+        items: mapZodType(target.element).schema
+      },
+      required: !optional
+    };
+  }
+
+  if (target instanceof z.ZodObject) {
+    return {
+      schema: zodToJsonSchema(target),
+      required: !optional
+    };
+  }
+
   if (target instanceof z.ZodEnum || target instanceof z.ZodNativeEnum) {
     const values =
-      target instanceof z.ZodEnum ? [...target.options] : Object.values(target.enum).filter((v) => typeof v === "string");
+      target instanceof z.ZodEnum
+        ? [...target.options]
+        : Object.values(target.enum).filter((v) => typeof v === "string");
     return {
       schema: {
         type: "string",

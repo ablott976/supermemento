@@ -22,6 +22,7 @@ export enum DocumentStatus {
   Queued = "queued",
   Extracting = "extracting",
   Chunking = "chunking",
+  ExtractingMemories = "extracting_memories",
   Embedding = "embedding",
   Indexing = "indexing",
   Done = "done",

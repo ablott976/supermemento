@@ -5,6 +5,8 @@ const CONSTRAINTS_AND_INDEXES = [
   "CREATE CONSTRAINT memory_id IF NOT EXISTS FOR (m:Memory) REQUIRE m.id IS UNIQUE",
   "CREATE CONSTRAINT document_id IF NOT EXISTS FOR (d:Document) REQUIRE d.id IS UNIQUE",
   "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (c:Chunk) REQUIRE c.id IS UNIQUE",
+  "CREATE CONSTRAINT profile_container IF NOT EXISTS FOR (p:Profile) REQUIRE p.containerTag IS UNIQUE",
+  "CREATE CONSTRAINT container_config_tag IF NOT EXISTS FOR (c:ContainerConfig) REQUIRE c.containerTag IS UNIQUE",
   "CREATE INDEX memory_container IF NOT EXISTS FOR (m:Memory) ON (m.containerTag)",
   "CREATE INDEX memory_latest IF NOT EXISTS FOR (m:Memory) ON (m.isLatest)",
   "CREATE INDEX memory_type IF NOT EXISTS FOR (m:Memory) ON (m.memoryType)",
