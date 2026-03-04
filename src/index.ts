@@ -11,7 +11,17 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  await server.startStdio();
+  const transport = process.env.MCP_TRANSPORT ?? "sse";
+  const port = parseInt(process.env.MCP_PORT ?? "8080", 10);
+  const host = process.env.MCP_HOST ?? "0.0.0.0";
+
+  if (transport === "stdio") {
+    console.log("[supermemento] Starting in stdio mode");
+    await server.startStdio();
+  } else {
+    console.log(`[supermemento] Starting in SSE mode on ${host}:${port}`);
+    await server.startSSE(port, host);
+  }
 }
 
 main().catch((error) => {

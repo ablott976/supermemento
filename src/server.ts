@@ -1,5 +1,7 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -173,7 +175,7 @@ export class SupermementoServer {
       }
     );
 
-    this.registerHandlers();
+    this.registerHandlersOnServer(this.server);
   }
 
   /**
@@ -186,14 +188,89 @@ export class SupermementoServer {
   }
 
   /**
+   * Starts the server on HTTP/SSE transport.
+   * @param port Port to listen on (default 8080).
+   * @param host Host to bind to (default 0.0.0.0).
+   */
+  public async startSSE(port = 8080, host = "0.0.0.0"): Promise<void> {
+    await this.neo4jClient.verifyConnectivity();
+
+    const sessions = new Map<string, SSEServerTransport>();
+
+    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+      // CORS headers
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // Health check
+      if (url.pathname === "/health" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "ok", version: "0.2.0" }));
+        return;
+      }
+
+      // SSE endpoint — client connects here to establish the stream
+      if (url.pathname === "/sse" && req.method === "GET") {
+        const transport = new SSEServerTransport("/messages", res);
+        sessions.set(transport.sessionId, transport);
+
+        transport.onclose = () => {
+          sessions.delete(transport.sessionId);
+        };
+
+        // Each SSE connection gets its own Server instance to handle the session
+        const sessionServer = new Server(
+          { name: "supermemento-mcp", version: "0.2.0" },
+          { capabilities: { tools: {} } }
+        );
+        this.registerHandlersOnServer(sessionServer);
+        await sessionServer.connect(transport);
+        return;
+      }
+
+      // Message endpoint — client POSTs JSON-RPC messages here
+      if (url.pathname === "/messages" && req.method === "POST") {
+        const sessionId = url.searchParams.get("sessionId");
+        if (!sessionId || !sessions.has(sessionId)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid or missing sessionId" }));
+          return;
+        }
+        const transport = sessions.get(sessionId)!;
+        await transport.handlePostMessage(req, res);
+        return;
+      }
+
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found" }));
+    });
+
+    httpServer.listen(port, host, () => {
+      console.log(`[supermemento] SSE server listening on http://${host}:${port}`);
+      console.log(`[supermemento] SSE endpoint: GET /sse`);
+      console.log(`[supermemento] Message endpoint: POST /messages`);
+      console.log(`[supermemento] Health: GET /health`);
+    });
+  }
+
+  /**
    * Closes all external resources.
    */
   public async close(): Promise<void> {
     await this.neo4jClient.close();
   }
 
-  private registerHandlers(): void {
-    this.server.setRequestHandler(ListToolsRequestSchema, async (): Promise<ListToolsResult> => ({
+  private registerHandlersOnServer(targetServer: Server): void {
+    targetServer.setRequestHandler(ListToolsRequestSchema, async (): Promise<ListToolsResult> => ({
       tools: [
         {
           name: "create_memory",
@@ -292,7 +369,7 @@ export class SupermementoServer {
       ]
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+    targetServer.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
       try {
         const name = request.params.name;
         const args = request.params.arguments ?? {};
