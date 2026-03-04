@@ -171,7 +171,7 @@ export class RelationClassifierService {
 
   private extractJson(raw: string): unknown {
     const fenced = raw.match(/```json\s*([\s\S]*?)\s*```/i);
-    const payload = fenced ? fenced[1] : raw;
+    const payload = fenced?.[1] ?? raw;
     return JSON.parse(payload.trim());
   }
 

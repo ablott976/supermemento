@@ -261,9 +261,9 @@ export class SupermementoServer {
  * Converts a zod schema to a JSON schema object accepted by MCP tool definitions.
  * @param schema zod schema.
  */
-function zodToJsonSchema(schema: z.AnyZodObject): Record<string, unknown> {
+function zodToJsonSchema(schema: z.AnyZodObject): { type: "object"; properties?: Record<string, object>; required?: string[]; [key: string]: unknown } {
   const shape = schema.shape;
-  const properties: Record<string, unknown> = {};
+  const properties: Record<string, object> = {};
   const required: string[] = [];
 
   for (const [key, value] of Object.entries(shape)) {
@@ -275,14 +275,14 @@ function zodToJsonSchema(schema: z.AnyZodObject): Record<string, unknown> {
   }
 
   return {
-    type: "object",
+    type: "object" as const,
     properties,
     required,
     additionalProperties: false
   };
 }
 
-function mapZodType(type: z.ZodTypeAny): { schema: Record<string, unknown>; required: boolean } {
+function mapZodType(type: z.ZodTypeAny): { schema: Record<string, object | string | boolean | string[]>; required: boolean } {
   const optional = type instanceof z.ZodOptional || type instanceof z.ZodDefault;
   const target = type instanceof z.ZodOptional || type instanceof z.ZodDefault ? type._def.innerType : type;
 
