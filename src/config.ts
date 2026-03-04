@@ -6,7 +6,7 @@ const envSchema = z.object({
   NEO4J_PASSWORD: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
   ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_MODEL: z.string().min(1).default("claude-sonnet-4-6"),
+  ANTHROPIC_MODEL: z.string().min(1).default("claude-haiku-4-5-20250315"),
   OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-large")
 });
 
