@@ -220,20 +220,30 @@ export class SupermementoServer {
 
       // SSE endpoint — client connects here to establish the stream
       if (url.pathname === "/sse" && req.method === "GET") {
-        const transport = new SSEServerTransport("/messages", res);
-        sessions.set(transport.sessionId, transport);
+        try {
+          const transport = new SSEServerTransport("/messages", res);
+          sessions.set(transport.sessionId, transport);
+          console.log(`[supermemento] New SSE session: ${transport.sessionId}`);
 
-        transport.onclose = () => {
-          sessions.delete(transport.sessionId);
-        };
+          transport.onclose = () => {
+            console.log(`[supermemento] SSE session closed: ${transport.sessionId}`);
+            sessions.delete(transport.sessionId);
+          };
 
-        // Each SSE connection gets its own Server instance to handle the session
-        const sessionServer = new Server(
-          { name: "supermemento-mcp", version: "0.2.0" },
-          { capabilities: { tools: {} } }
-        );
-        this.registerHandlersOnServer(sessionServer);
-        await sessionServer.connect(transport);
+          // Each SSE connection gets its own Server instance to handle the session
+          const sessionServer = new Server(
+            { name: "supermemento-mcp", version: "0.2.0" },
+            { capabilities: { tools: {} } }
+          );
+          this.registerHandlersOnServer(sessionServer);
+          await sessionServer.connect(transport);
+        } catch (error) {
+          console.error("[supermemento] SSE connection error:", error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Internal server error" }));
+          }
+        }
         return;
       }
 
@@ -245,8 +255,16 @@ export class SupermementoServer {
           res.end(JSON.stringify({ error: "Invalid or missing sessionId" }));
           return;
         }
-        const transport = sessions.get(sessionId)!;
-        await transport.handlePostMessage(req, res);
+        try {
+          const transport = sessions.get(sessionId)!;
+          await transport.handlePostMessage(req, res);
+        } catch (error) {
+          console.error("[supermemento] Message handling error:", error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Internal server error" }));
+          }
+        }
         return;
       }
 

@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   const transport = process.env.MCP_TRANSPORT ?? "sse";
-  const port = parseInt(process.env.MCP_PORT ?? "8080", 10);
+  const port = parseInt(process.env.MCP_PORT ?? process.env.PORT ?? "8080", 10);
   const host = process.env.MCP_HOST ?? "0.0.0.0";
 
   if (transport === "stdio") {
