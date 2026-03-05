@@ -127,6 +127,12 @@ const listCrawledUrlsArgsSchema = z.object({
   limit: z.number().int().min(1).max(500).default(100)
 });
 
+/** Strip embedding field from a record to reduce response size. */
+function stripEmbedding(obj: Record<string, unknown>): Record<string, unknown> {
+  const { embedding, ...rest } = obj;
+  return rest;
+}
+
 /** Supermemento MCP server implementation. */
 export class SupermementoServer {
   private readonly server: Server;
@@ -440,7 +446,7 @@ export class SupermementoServer {
       const name = request.params.name;
       const args = request.params.arguments ?? {};
       try {
-        console.log(`[supermemento] Tool call: ${name} args=${JSON.stringify(args).substring(0, 200)}`);
+        console.log(`[supermemento] Tool call: ${name} args=${JSON.stringify(args).substring(0, 300)}`);
 
         switch (name) {
           case "create_memory": {
@@ -589,7 +595,9 @@ export class SupermementoServer {
           case "list_memories": {
             const input = listMemoriesArgsSchema.parse(args);
             const memories = await this.neo4jClient.listMemories(input);
-            return asJson({ count: memories.length, memories });
+            // Strip embeddings to avoid huge responses (3072 floats per memory)
+            const cleaned = memories.map(({ embedding, ...rest }) => rest);
+            return asJson({ count: cleaned.length, memories: cleaned });
           }
 
           case "get_memory_relations": {
@@ -675,8 +683,10 @@ export class SupermementoServer {
             return asError(`Unknown tool: ${name}`);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const message = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack?.split("\n").slice(0, 3).join("\n") : "";
         console.error(`[supermemento] Tool ERROR ${name}: ${message}`);
+        if (stack) console.error(`[supermemento] Stack: ${stack}`);
         return asError(`[${name}] ${message}`);
       }
     });
@@ -705,8 +715,7 @@ function zodToJsonSchema(
   return {
     type: "object" as const,
     properties,
-    required,
-    additionalProperties: false
+    required
   };
 }
 
