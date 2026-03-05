@@ -3,29 +3,31 @@ import { z } from "zod";
 import type { AppConfig } from "../../config.js";
 import { MemoryType } from "../../types/enums.js";
 
-const EXTRACTION_SYSTEM_PROMPT = `Eres un extractor de hechos. Dado un fragmento de texto, extrae TODOS los hechos atómicos. Cada hecho debe ser una afirmación independiente y autónoma que tenga sentido sin contexto adicional.
+const EXTRACTION_SYSTEM_PROMPT = `You are a fact extractor. Given a text chunk, extract ALL atomic facts. Each fact must be an independent, self-contained statement that makes sense without additional context.
 
-Para cada hecho, determina:
-- content (el hecho en lenguaje natural)
-- memoryType (fact, preference, episode)
+For each fact, determine:
+- content (the fact in natural language)
+- memoryType ("fact", "preference", or "episode")
 - confidence (0.0-1.0)
-- validFrom (fecha actual)
-- validTo (null si permanente, fecha si temporal)
+- validFrom (ISO date string or null)
+- validTo (null if permanent, ISO date string if temporal)
 
-Reglas:
-- No incluyas opiniones del texto, solo hechos verificables.
-- Resuelve pronombres ('ella' -> nombre concreto si disponible).
-- Detecta referencias temporales y calcula fechas absolutas.
-- Si el hecho es una preferencia del usuario, marca como 'preference'.
+Rules:
+- Only extract verifiable facts, not opinions.
+- Resolve pronouns to concrete names when available.
+- Detect temporal references and calculate absolute dates.
+- If the fact is a user preference, mark as "preference".
+- If the fact describes an event, mark as "episode".
 
-Responde SOLO en JSON: {memories: [{content, memoryType, confidence, validFrom, validTo}]}`;
+IMPORTANT: Respond with ONLY a JSON object, no markdown fences, no explanation:
+{"memories": [{"content": "...", "memoryType": "fact", "confidence": 0.9, "validFrom": null, "validTo": null}]}`;
 
 const extractedMemorySchema = z.object({
   content: z.string().min(1),
   memoryType: z.nativeEnum(MemoryType),
   confidence: z.number().min(0).max(1),
-  validFrom: z.string().datetime().nullable(),
-  validTo: z.string().datetime().nullable()
+  validFrom: z.string().nullable().optional(),
+  validTo: z.string().nullable().optional()
 });
 
 const extractionResponseSchema = z.object({
@@ -67,25 +69,74 @@ export class MemoryExtractorService {
       2
     );
 
-    const response = await this.anthropic.messages.create({
-      model: this.model,
-      max_tokens: 1200,
-      system: EXTRACTION_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userPrompt }]
-    });
+    try {
+      const response = await this.anthropic.messages.create({
+        model: this.model,
+        max_tokens: 2000,
+        system: EXTRACTION_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt }]
+      });
 
-    const combinedText = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
+      const combinedText = response.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n");
 
-    const parsed = extractionResponseSchema.parse(this.extractJson(combinedText));
-    return parsed.memories;
+      const jsonData = this.extractJson(combinedText);
+      if (!jsonData) {
+        console.warn("[extractor] Failed to parse JSON from Anthropic response, returning empty memories");
+        console.warn("[extractor] Raw response (first 500 chars):", combinedText.substring(0, 500));
+        return [];
+      }
+
+      try {
+        const parsed = extractionResponseSchema.parse(jsonData);
+        return parsed.memories;
+      } catch (zodError) {
+        console.warn("[extractor] Zod validation failed, attempting lenient parse:", (zodError as Error).message);
+        // Try lenient parse: accept any structure with a memories array
+        if (jsonData && typeof jsonData === "object" && "memories" in (jsonData as Record<string, unknown>) && Array.isArray((jsonData as Record<string, unknown>).memories)) {
+          const memories = (jsonData as { memories: unknown[] }).memories;
+          const validMemories: ExtractedMemory[] = [];
+          for (const m of memories) {
+            try {
+              validMemories.push(extractedMemorySchema.parse(m));
+            } catch {
+              // Skip invalid individual memories
+            }
+          }
+          console.log(`[extractor] Lenient parse recovered ${validMemories.length}/${memories.length} memories`);
+          return validMemories;
+        }
+        return [];
+      }
+    } catch (apiError) {
+      console.error("[extractor] Anthropic API error:", (apiError as Error).message);
+      return [];
+    }
   }
 
-  private extractJson(raw: string): unknown {
-    const fenced = raw.match(/```json\s*([\s\S]*?)\s*```/i);
-    const payload = fenced?.[1] ?? raw;
-    return JSON.parse(payload.trim());
+  private extractJson(raw: string): unknown | null {
+    let text = raw.trim();
+
+    // Strip ```json ... ``` fences (common LLM output)
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced?.[1]) text = fenced[1].trim();
+
+    // Try to find a JSON object directly
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) text = jsonMatch[0];
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      // Try fixing common JSON issues: trailing commas
+      try {
+        const fixed = text.replace(/,\s*([}\]])/g, "$1");
+        return JSON.parse(fixed);
+      } catch {
+        return null;
+      }
+    }
   }
 }
