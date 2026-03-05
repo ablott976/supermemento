@@ -72,7 +72,7 @@ export class MemoryExtractorService {
     try {
       const response = await this.anthropic.messages.create({
         model: this.model,
-        max_tokens: 2000,
+        max_tokens: 4096,
         system: EXTRACTION_SYSTEM_PROMPT,
         messages: [{ role: "user", content: userPrompt }]
       });

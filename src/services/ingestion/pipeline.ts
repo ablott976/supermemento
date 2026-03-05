@@ -117,7 +117,7 @@ export class IngestionPipeline {
             chunkIndex: chunk.chunkIndex,
             containerTag: document.containerTag,
             sourceDocId: document.id,
-            metadata: chunk.metadata,
+            metadata: typeof chunk.metadata === "object" ? JSON.stringify(chunk.metadata) : (chunk.metadata ?? ""),
             embedding: chunkEmbeddings[index] ?? []
           }))
         );
@@ -139,13 +139,17 @@ export class IngestionPipeline {
           memoryType: extractedMemory.memoryType,
           containerTag: document.containerTag,
           confidence: extractedMemory.confidence,
-          validFrom: extractedMemory.validFrom,
-          validTo: extractedMemory.validTo,
+          validFrom: extractedMemory.validFrom ?? undefined,
+          validTo: extractedMemory.validTo ?? undefined,
           sourceDocId: document.id,
           embedding
         });
 
-        await this.relationClassifierService.classifyAndApply(memory);
+        try {
+          await this.relationClassifierService.classifyAndApply(memory);
+        } catch (e) {
+          console.warn(`[pipeline] RelationClassifier skipped for memory ${memory.id}:`, (e as Error).message);
+        }
       }
 
       const finalDocument = await this.neo4jClient.updateDocument(document.id, {
@@ -164,16 +168,14 @@ export class IngestionPipeline {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown pipeline error";
-      const latest = (await this.neo4jClient.getDocument(document.id)) ?? document;
-      const metadata = {
-        ...latest.metadata,
+      const metaStr = JSON.stringify({
         pipelineError: message,
         pipelineErrorAt: new Date().toISOString()
-      };
+      });
 
       await this.neo4jClient.updateDocument(document.id, {
         status: DocumentStatus.Error,
-        metadata
+        metadata: metaStr
       });
       throw error;
     }

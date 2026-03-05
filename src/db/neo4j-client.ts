@@ -26,7 +26,7 @@ type DocumentCreateInput = {
 type DocumentUpdateInput = {
   title?: string;
   rawContent?: string;
-  metadata?: Metadata;
+  metadata?: Metadata | string;
   status?: DocumentStatus;
 };
 
@@ -56,7 +56,7 @@ type ChunkCreateInput = {
   embedding: number[];
   chunkIndex: number;
   containerTag: string;
-  metadata?: Metadata;
+  metadata?: Metadata | string;
   sourceDocId: string;
 };
 
@@ -132,7 +132,7 @@ export class Neo4jClient {
           sourceUrl: input.sourceUrl ?? null,
           filePath: input.filePath ?? null,
           containerTag: input.containerTag,
-          metadata: input.metadata ?? {},
+          metadata: input.metadata ? (typeof input.metadata === "string" ? input.metadata : JSON.stringify(input.metadata)) : "{}",
           status: DocumentStatus.Queued,
           createdAt: now,
           updatedAt: now
@@ -225,7 +225,9 @@ export class Neo4jClient {
           id: documentId,
           title: input.title ?? null,
           rawContent: input.rawContent ?? null,
-          metadata: input.metadata ?? null,
+          metadata: input.metadata != null
+            ? (typeof input.metadata === "string" ? input.metadata : JSON.stringify(input.metadata))
+            : null,
           status: input.status ?? null,
           updatedAt: new Date().toISOString()
         }
@@ -649,15 +651,18 @@ export class Neo4jClient {
 
     const session = this.driver.session();
     try {
-      const rows = chunks.map((chunk) => ({
-        id: uuidv4(),
-        content: chunk.content,
-        embedding: chunk.embedding,
-        chunkIndex: chunk.chunkIndex,
-        containerTag: chunk.containerTag,
-        metadata: chunk.metadata ?? {},
-        sourceDocId: chunk.sourceDocId
-      }));
+      const rows = chunks.map((chunk) => {
+        const meta = chunk.metadata ?? {};
+        return {
+          id: uuidv4(),
+          content: chunk.content,
+          embedding: chunk.embedding,
+          chunkIndex: chunk.chunkIndex,
+          containerTag: chunk.containerTag,
+          metadata: typeof meta === "string" ? meta : JSON.stringify(meta),
+          sourceDocId: chunk.sourceDocId
+        };
+      });
 
       const result = await session.run(
         `
