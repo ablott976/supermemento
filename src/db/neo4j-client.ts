@@ -980,7 +980,7 @@ export class Neo4jClient {
       const result = await session.run(
         `
         MATCH (d:Document {containerTag: $containerTag})
-        WHERE d.metadata.contentHash = $contentHash
+        WHERE d.metadata IS NOT NULL AND d.metadata CONTAINS $contentHash
         RETURN d
         ORDER BY d.updatedAt DESC
         LIMIT 1
@@ -1013,7 +1013,7 @@ export class Neo4jClient {
           AND ($containerTag IS NULL OR d.containerTag = $containerTag)
         RETURN d.sourceUrl AS sourceUrl,
                d.id AS documentId,
-               d.metadata.lastCrawledAt AS lastCrawledAt
+               d.updatedAt AS lastCrawledAt
         ORDER BY d.updatedAt DESC
         LIMIT $limit
         `,
