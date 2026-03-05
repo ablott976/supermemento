@@ -511,11 +511,14 @@ export class Neo4jClient {
   }): Promise<MemorySearchHit[]> {
     const session = this.driver.session();
     const limit = params.limit ?? 10;
+    // When filtering by containerTag, fetch more candidates from the vector index
+    // to compensate for post-filter reduction
+    const vectorLimit = params.containerTag ? limit * 10 : limit;
 
     try {
       const result = await session.run(
         `
-        CALL db.index.vector.queryNodes('memory_embeddings', $limit, $embedding)
+        CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
         YIELD node, score
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND ($isLatestOnly = false OR node.isLatest = true)
@@ -524,8 +527,10 @@ export class Neo4jClient {
           AND score >= $minScore
         RETURN node, score
         ORDER BY score DESC
+        LIMIT $limit
         `,
         {
+          vectorLimit: neo4j.int(vectorLimit),
           limit: neo4j.int(limit),
           embedding: params.embedding,
           containerTag: params.containerTag ?? null,
@@ -559,11 +564,12 @@ export class Neo4jClient {
     const session = this.driver.session();
     const limit = params.limit ?? 10;
     const memoryTypes = params.memoryTypes ?? [];
+    const vectorLimit = params.containerTag ? limit * 10 : limit;
 
     try {
       const result = await session.run(
         `
-        CALL db.index.vector.queryNodes('memory_embeddings', $limit, $embedding)
+        CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
         YIELD node, score
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND ($isLatestOnly = false OR node.isLatest = true)
@@ -573,8 +579,10 @@ export class Neo4jClient {
           AND score >= $minScore
         RETURN node, score
         ORDER BY score DESC
+        LIMIT $limit
         `,
         {
+          vectorLimit: neo4j.int(vectorLimit),
           limit: neo4j.int(limit),
           embedding: params.embedding,
           containerTag: params.containerTag ?? null,
@@ -702,18 +710,21 @@ export class Neo4jClient {
   }): Promise<ChunkSearchHit[]> {
     const session = this.driver.session();
     const limit = params.limit ?? 10;
+    const vectorLimit = params.containerTag ? limit * 10 : limit;
 
     try {
       const result = await session.run(
         `
-        CALL db.index.vector.queryNodes('chunk_embeddings', $limit, $embedding)
+        CALL db.index.vector.queryNodes('chunk_embeddings', $vectorLimit, $embedding)
         YIELD node, score
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND score >= $minScore
         RETURN node, score
         ORDER BY score DESC
+        LIMIT $limit
         `,
         {
+          vectorLimit: neo4j.int(vectorLimit),
           limit: neo4j.int(limit),
           embedding: params.embedding,
           containerTag: params.containerTag ?? null,
