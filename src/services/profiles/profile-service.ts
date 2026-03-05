@@ -36,13 +36,16 @@ export class ProfileService {
    * @param containerTag Container tag.
    */
   public async generateProfile(containerTag: string): Promise<Profile> {
-    const memories = await this.neo4jClient.getLatestMemoriesByContainer(containerTag);
+    const allMemories = await this.neo4jClient.getLatestMemoriesByContainer(containerTag);
+
+    // Limit to most recent 200 memories to avoid exceeding prompt/string limits
+    const memories = allMemories.slice(-200);
 
     const grouped = {
-      fact: memories.filter((memory) => memory.memoryType === MemoryType.Fact),
-      preference: memories.filter((memory) => memory.memoryType === MemoryType.Preference),
-      episode: memories.filter((memory) => memory.memoryType === MemoryType.Episode),
-      derived: memories.filter((memory) => memory.memoryType === MemoryType.Derived)
+      fact: memories.filter((memory) => memory.memoryType === MemoryType.Fact).map((m) => m.content),
+      preference: memories.filter((memory) => memory.memoryType === MemoryType.Preference).map((m) => m.content),
+      episode: memories.filter((memory) => memory.memoryType === MemoryType.Episode).map((m) => m.content),
+      derived: memories.filter((memory) => memory.memoryType === MemoryType.Derived).map((m) => m.content)
     };
 
     const response = await this.anthropic.messages.create({
@@ -55,6 +58,8 @@ export class ProfileService {
           content: JSON.stringify(
             {
               containerTag,
+              totalMemories: allMemories.length,
+              sampledMemories: memories.length,
               memoriesByType: grouped
             },
             null,
