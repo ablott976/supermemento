@@ -55,3 +55,39 @@ class TestSSEServerConnection:
                 first_chunk = response.read(32)
                 assert first_chunk != b""
                 assert b":ok" in first_chunk
+
+    def test_connection_refused_on_unused_port(self) -> None:
+        """Verify connecting to an unused port raises connection-refused style errors."""
+        unused_port = _find_free_port()
+
+        with pytest.raises((ConnectionRefusedError, OSError)):
+            socket.create_connection(("localhost", unused_port), timeout=0.2)
+
+    def test_socket_read_times_out_when_peer_stalls(self) -> None:
+        """Verify client times out when peer accepts but never sends data."""
+        server_port = _find_free_port()
+        ready = threading.Event()
+        release = threading.Event()
+
+        def _stalled_server() -> None:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                server.bind(("localhost", server_port))
+                server.listen(1)
+                ready.set()
+                conn, _ = server.accept()
+                with conn:
+                    release.wait(timeout=1.0)
+
+        thread = threading.Thread(target=_stalled_server, daemon=True)
+        thread.start()
+        assert ready.wait(timeout=1.0), "stalled test server failed to start"
+
+        try:
+            with socket.create_connection(("localhost", server_port), timeout=0.5) as client:
+                client.settimeout(0.1)
+                with pytest.raises(socket.timeout):
+                    _ = client.recv(1)
+        finally:
+            release.set()
+            thread.join(timeout=1.0)
