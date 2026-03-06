@@ -101,4 +101,6 @@ def test_docker_compose_config_validation() -> None:
     )
 
     # Verify port 8080 is in the rendered config
-    assert "8080" in result.stdout, "Port 8080 not found in docker-compose config output"
+    assert "8080" in result.stdout, (
+        "Port 8080 not found in docker-compose config output"
+    )
