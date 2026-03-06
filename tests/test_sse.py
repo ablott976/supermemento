@@ -1,6 +1,8 @@
 """Tests for SSE server connection behavior."""
 
+import http.server
 import socket
+import socketserver
 import threading
 import time
 from contextlib import closing
@@ -33,6 +35,35 @@ def running_sse_server() -> int:
         except OSError:
             time.sleep(0.05)
     pytest.fail(f"SSE test server did not become reachable on port {port}")
+
+
+@pytest.fixture
+def slow_response_server() -> int:
+    """Start a test server that delays response writes to trigger client timeout."""
+
+    class SlowHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            time.sleep(1.0)
+            self.send_response(200)
+            self.send_header("Content-type", "text/event-stream")
+            self.end_headers()
+            try:
+                self.wfile.write(b":ok\n\n")
+            except BrokenPipeError:
+                pass
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    port = _find_free_port()
+    server = socketserver.TCPServer(("localhost", port), SlowHandler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    yield port
+
+    server.shutdown()
+    server.server_close()
 
 
 class TestSSEServerConnection:
@@ -72,3 +103,23 @@ class TestSSEServerConnection:
                 first_chunk = response.read(32)
                 assert first_chunk != b""
                 assert b":ok" in first_chunk
+
+    def test_sse_connection_refused_when_server_unreachable(self) -> None:
+        """Verify connecting to an unused port raises a connection error."""
+        httpx = pytest.importorskip("httpx", reason="httpx required for HTTP tests")
+        port = _find_free_port()
+
+        with pytest.raises(httpx.ConnectError):
+            with httpx.Client(timeout=0.5) as client:
+                client.get(f"http://localhost:{port}/sse")
+
+    def test_sse_timeout_when_server_response_is_too_slow(
+        self, slow_response_server: int
+    ) -> None:
+        """Verify slow server responses raise an HTTP timeout error."""
+        httpx = pytest.importorskip("httpx", reason="httpx required for HTTP tests")
+        timeout = httpx.Timeout(connect=0.1, read=0.1, write=0.1, pool=0.1)
+
+        with pytest.raises(httpx.TimeoutException):
+            with httpx.Client(timeout=timeout) as client:
+                client.get(f"http://localhost:{slow_response_server}/sse")
