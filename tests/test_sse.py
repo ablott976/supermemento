@@ -76,3 +76,43 @@ def test_sse_connection_refused_when_server_unreachable() -> None:
     with pytest.raises(OSError):
         with socket.create_connection(("127.0.0.1", port), timeout=0.2):
             pass
+
+
+@pytest.fixture
+def unresponsive_tcp_server() -> int:
+    """Start a server that accepts one connection and never responds."""
+    ready = threading.Event()
+    stop = threading.Event()
+    server_info: dict[str, int] = {}
+
+    def _run() -> None:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", 0))
+            sock.listen(1)
+            server_info["port"] = int(sock.getsockname()[1])
+            ready.set()
+
+            conn, _ = sock.accept()
+            with conn:
+                stop.wait(timeout=2)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    assert ready.wait(timeout=2), "Unresponsive TCP server did not start"
+    yield server_info["port"]
+    stop.set()
+    thread.join(timeout=2)
+
+
+def test_sse_connection_times_out_when_server_stalls(
+    unresponsive_tcp_server: int,
+) -> None:
+    """Verify SSE request times out if peer accepts but never replies."""
+    conn = http.client.HTTPConnection("127.0.0.1", unresponsive_tcp_server, timeout=0.2)
+    try:
+        conn.request("GET", "/sse")
+        with pytest.raises((TimeoutError, socket.timeout)):
+            conn.getresponse()
+    finally:
+        conn.close()
