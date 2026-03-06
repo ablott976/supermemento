@@ -14,12 +14,15 @@ def _compose_file() -> Path:
 
 def _has_compose_and_docker() -> bool:
     try:
-        compose_ok = subprocess.run(
-            ["docker-compose", "--version"],
-            capture_output=True,
-            timeout=5,
-            check=False,
-        ).returncode == 0
+        compose_ok = (
+            subprocess.run(
+                ["docker-compose", "--version"],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            ).returncode
+            == 0
+        )
         if not compose_ok:
             return False
         return (

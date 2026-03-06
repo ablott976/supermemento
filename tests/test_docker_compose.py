@@ -144,7 +144,7 @@ def test_mcp_server_environment_port() -> None:
         config = yaml.safe_load(f)
     mcp_server = config["services"]["mcp-server"]
     environment = mcp_server.get("environment", {})
-    
+
     # Check if PORT is set to 8080
     port_value = None
     if isinstance(environment, dict):
@@ -154,7 +154,7 @@ def test_mcp_server_environment_port() -> None:
             if isinstance(env, str) and env.startswith("PORT="):
                 port_value = env.split("=", 1)[1]
                 break
-    
+
     assert port_value == "8080", f"PORT should be set to 8080, got {port_value}"
 
 
@@ -162,12 +162,12 @@ def test_mcp_server_environment_port() -> None:
 @pytest.mark.integration
 class TestDockerComposeUp:
     """Integration tests that verify docker-compose deployment."""
-    
+
     @pytest.fixture(scope="class")
     def docker_services(self):
         """Start docker-compose services and cleanup after tests."""
         compose_file = _get_compose_file()
-        
+
         # Start services
         result = subprocess.run(
             ["docker-compose", "-f", str(compose_file), "up", "-d", "--build"],
@@ -177,11 +177,11 @@ class TestDockerComposeUp:
         )
         if result.returncode != 0:
             pytest.fail(f"Failed to start docker-compose: {result.stderr}")
-        
+
         try:
             # Wait for port 8080 to be available
             import socket
-            
+
             for _ in range(60):  # Wait up to 60 seconds
                 try:
                     sock = socket.create_connection(("localhost", 8080), timeout=1)
@@ -199,16 +199,18 @@ class TestDockerComposeUp:
                 capture_output=True,
                 timeout=60,
             )
-    
+
     def test_server_reachable_on_port_8080(self, docker_services) -> None:
         """Verify server is reachable on port 8080 after running docker-compose up."""
         import socket
-        
+
         # Verify TCP connection can be established
         sock = socket.create_connection(("localhost", 8080), timeout=10)
         try:
             # Send HTTP GET request to verify HTTP server is responding
-            sock.send(b"GET / HTTP/1.1\r\nHost: localhost:8080\r\nConnection: close\r\n\r\n")
+            sock.send(
+                b"GET / HTTP/1.1\r\nHost: localhost:8080\r\nConnection: close\r\n\r\n"
+            )
             response = sock.recv(1024).decode("utf-8")
             # Should receive some HTTP response (might be 404 or 200, but not connection refused)
             assert "HTTP/1." in response, f"Expected HTTP response, got: {response}"

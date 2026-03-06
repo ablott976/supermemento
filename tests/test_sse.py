@@ -33,24 +33,34 @@ class TestSSEServerConnection:
 
     def test_sse_server_accepts_tcp_connections(self, running_sse_server: int) -> None:
         """Verify host can establish a TCP connection to the server port."""
-        with socket.create_connection(("localhost", running_sse_server), timeout=5) as sock:
+        with socket.create_connection(
+            ("localhost", running_sse_server), timeout=5
+        ) as sock:
             assert sock.fileno() > 0
 
-    def test_sse_endpoint_returns_event_stream_headers(self, running_sse_server: int) -> None:
+    def test_sse_endpoint_returns_event_stream_headers(
+        self, running_sse_server: int
+    ) -> None:
         """Verify /sse responds with SSE content type and a success status."""
         httpx = pytest.importorskip("httpx", reason="httpx required for HTTP tests")
 
         with httpx.Client(timeout=5.0) as client:
-            with client.stream("GET", f"http://localhost:{running_sse_server}/sse") as response:
+            with client.stream(
+                "GET", f"http://localhost:{running_sse_server}/sse"
+            ) as response:
                 assert response.status_code == 200
                 assert "text/event-stream" in response.headers.get("content-type", "")
 
-    def test_sse_endpoint_sends_initial_stream_bytes(self, running_sse_server: int) -> None:
+    def test_sse_endpoint_sends_initial_stream_bytes(
+        self, running_sse_server: int
+    ) -> None:
         """Verify /sse sends initial bytes after connection establishment."""
         httpx = pytest.importorskip("httpx", reason="httpx required for HTTP tests")
 
         with httpx.Client(timeout=5.0) as client:
-            with client.stream("GET", f"http://localhost:{running_sse_server}/sse") as response:
+            with client.stream(
+                "GET", f"http://localhost:{running_sse_server}/sse"
+            ) as response:
                 assert response.status_code == 200
                 first_chunk = response.read(32)
                 assert first_chunk != b""
@@ -84,7 +94,9 @@ class TestSSEServerConnection:
         assert ready.wait(timeout=1.0), "stalled test server failed to start"
 
         try:
-            with socket.create_connection(("localhost", server_port), timeout=0.5) as client:
+            with socket.create_connection(
+                ("localhost", server_port), timeout=0.5
+            ) as client:
                 client.settimeout(0.1)
                 with pytest.raises(socket.timeout):
                     _ = client.recv(1)

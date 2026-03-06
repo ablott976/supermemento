@@ -65,7 +65,9 @@ class TestServerReachable:
         except httpx.ConnectError:
             pytest.fail(f"Server not reachable on port {port}")
 
-    def test_health_endpoint_returns_200_when_reachable(self, running_server: int) -> None:
+    def test_health_endpoint_returns_200_when_reachable(
+        self, running_server: int
+    ) -> None:
         """Test health endpoint returns response when server is reachable."""
         httpx = pytest.importorskip("httpx", reason="httpx required for HTTP tests")
 
