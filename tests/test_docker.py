@@ -119,6 +119,19 @@ def test_docker_compose_reports_8080_port_mapping() -> None:
                 assert published.endswith(":8080"), (
                     f"Expected published host port 8080, got: {published}"
                 )
+                ps_result = subprocess.run(
+                    ["docker-compose", "-f", str(compose_file), "ps", "mcp-server"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                assert ps_result.returncode == 0, ps_result.stderr
+                normalized = ps_result.stdout.replace(" ", "")
+                assert any(
+                    mapping in normalized
+                    for mapping in ("0.0.0.0:8080->8080/tcp", "*:8080->8080/tcp")
+                ), f"Expected published 8080 mapping in docker-compose ps output: {ps_result.stdout}"
                 return
             time.sleep(1)
         pytest.fail("docker-compose never reported published port for mcp-server:8080")
