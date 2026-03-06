@@ -1,4 +1,5 @@
 version: "3.9"
+
 services:
   neo4j:
     image: neo4j:5.26
@@ -14,6 +15,7 @@ services:
       - "7687:7687"
     volumes:
       - neo4j_data:/data
+
   mcp-server:
     build: .
     container_name: supermemento-mcp
@@ -31,5 +33,6 @@ services:
       - neo4j
     stdin_open: true
     tty: true
+
 volumes:
   neo4j_data:

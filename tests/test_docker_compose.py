@@ -36,7 +36,6 @@ def test_docker_compose_yaml_syntax() -> None:
     import yaml
 
     compose_file = _get_compose_file()
-
     with open(compose_file) as f:
         try:
             config = yaml.safe_load(f)
@@ -53,12 +52,27 @@ def test_mcp_server_service_exists() -> None:
     import yaml
 
     compose_file = _get_compose_file()
-
     with open(compose_file) as f:
         config = yaml.safe_load(f)
 
     services = config.get("services", {})
     assert "mcp-server" in services, "mcp-server service must be defined"
+
+
+def test_mcp_server_has_image_or_build() -> None:
+    """Verify mcp-server has either image or build configuration."""
+    pytest.importorskip("yaml", reason="PyYAML not installed")
+    import yaml
+
+    compose_file = _get_compose_file()
+    with open(compose_file) as f:
+        config = yaml.safe_load(f)
+
+    mcp_server = config["services"]["mcp-server"]
+    has_image = "image" in mcp_server
+    has_build = "build" in mcp_server
+
+    assert has_image or has_build, "mcp-server must define either 'image' or 'build'"
 
 
 def test_mcp_server_port_8080_exposed() -> None:
@@ -67,7 +81,6 @@ def test_mcp_server_port_8080_exposed() -> None:
     import yaml
 
     compose_file = _get_compose_file()
-
     with open(compose_file) as f:
         config = yaml.safe_load(f)
 
@@ -77,8 +90,82 @@ def test_mcp_server_port_8080_exposed() -> None:
     # Check for port 8080 exposure
     port_mappings = [str(p) for p in ports]
     has_port_8080 = any("8080:8080" in p or p == "8080" for p in port_mappings)
-
     assert has_port_8080, "mcp-server must expose port 8080:8080 for SSE transport"
+
+
+def test_mcp_server_restart_policy() -> None:
+    """Verify mcp-server has restart policy configured."""
+    pytest.importorskip("yaml", reason="PyYAML not installed")
+    import yaml
+
+    compose_file = _get_compose_file()
+    with open(compose_file) as f:
+        config = yaml.safe_load(f)
+
+    mcp_server = config["services"]["mcp-server"]
+    restart = mcp_server.get("restart")
+
+    assert restart is not None, "mcp-server should have a restart policy"
+    assert restart in ["always", "unless-stopped", "on-failure"], (
+        f"Invalid restart policy: {restart}"
+    )
+
+
+def test_mcp_server_health_check() -> None:
+    """Verify mcp-server has health check configured."""
+    pytest.importorskip("yaml", reason="PyYAML not installed")
+    import yaml
+
+    compose_file = _get_compose_file()
+    with open(compose_file) as f:
+        config = yaml.safe_load(f)
+
+    mcp_server = config["services"]["mcp-server"]
+    healthcheck = mcp_server.get("healthcheck")
+
+    assert healthcheck is not None, "mcp-server should have a healthcheck"
+    assert "test" in healthcheck, "healthcheck must have a test command"
+
+
+def test_mcp_server_container_name() -> None:
+    """Verify mcp-server has container name configured."""
+    pytest.importorskip("yaml", reason="PyYAML not installed")
+    import yaml
+
+    compose_file = _get_compose_file()
+    with open(compose_file) as f:
+        config = yaml.safe_load(f)
+
+    mcp_server = config["services"]["mcp-server"]
+    container_name = mcp_server.get("container_name")
+
+    assert container_name is not None, "mcp-server should have a container_name"
+    assert container_name == "mcp-server", (
+        f"container_name should be 'mcp-server', got '{container_name}'"
+    )
+
+
+def test_mcp_server_environment_port() -> None:
+    """Verify mcp-server has PORT environment variable set to 8080."""
+    pytest.importorskip("yaml", reason="PyYAML not installed")
+    import yaml
+
+    compose_file = _get_compose_file()
+    with open(compose_file) as f:
+        config = yaml.safe_load(f)
+
+    mcp_server = config["services"]["mcp-server"]
+    env = mcp_server.get("environment", {})
+
+    # Check for PORT=8080 in either dict or list format
+    if isinstance(env, dict):
+        assert "PORT" in env, "mcp-server should have PORT environment variable"
+        assert str(env["PORT"]) == "8080", "PORT should be set to 8080"
+    elif isinstance(env, list):
+        port_found = any(str(e) in ["PORT=8080", "PORT: '8080'"] for e in env)
+        assert port_found, "mcp-server should have PORT=8080 environment variable"
+    else:
+        pytest.fail("environment should be a dict or list")
 
 
 @pytest.mark.skipif(not _has_docker_compose(), reason="docker-compose not available")
