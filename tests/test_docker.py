@@ -80,3 +80,52 @@ def test_docker_compose_up_exposes_port_8080() -> None:
             timeout=120,
             check=False,
         )
+
+
+@pytest.mark.skipif(
+    not _has_compose_and_docker(), reason="docker-compose/docker daemon unavailable"
+)
+@pytest.mark.integration
+def test_docker_compose_reports_8080_port_mapping() -> None:
+    """Bring services up and verify compose reports host->container 8080 mapping."""
+    compose_file = _compose_file()
+    result = subprocess.run(
+        ["docker-compose", "-f", str(compose_file), "up", "-d", "--build"],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+    try:
+        for _ in range(30):
+            port_result = subprocess.run(
+                [
+                    "docker-compose",
+                    "-f",
+                    str(compose_file),
+                    "port",
+                    "mcp-server",
+                    "8080",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if port_result.returncode == 0:
+                published = port_result.stdout.strip()
+                assert published.endswith(":8080"), (
+                    f"Expected published host port 8080, got: {published}"
+                )
+                return
+            time.sleep(1)
+        pytest.fail("docker-compose never reported published port for mcp-server:8080")
+    finally:
+        subprocess.run(
+            ["docker-compose", "-f", str(compose_file), "down", "-v"],
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
