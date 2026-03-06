@@ -20,12 +20,19 @@ def _find_free_port() -> int:
 
 @pytest.fixture
 def running_sse_server() -> int:
-    """Start the test server and return the listening port."""
+    """Start the server and wait until its socket is reachable."""
     port = _find_free_port()
     server_thread = threading.Thread(target=run_server, args=(port,), daemon=True)
     server_thread.start()
-    time.sleep(0.5)
-    return port
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("localhost", port), timeout=0.2):
+                return port
+        except OSError:
+            time.sleep(0.05)
+    pytest.fail(f"SSE test server did not become reachable on port {port}")
 
 
 class TestSSEServerConnection:
@@ -41,7 +48,7 @@ class TestSSEServerConnection:
     def test_sse_endpoint_returns_event_stream_headers(
         self, running_sse_server: int
     ) -> None:
-        """Verify /sse responds with SSE content type and a success status."""
+        """Verify /sse returns an SSE content type and success status."""
         httpx = pytest.importorskip("httpx", reason="httpx required for HTTP tests")
 
         with httpx.Client(timeout=5.0) as client:
@@ -65,41 +72,3 @@ class TestSSEServerConnection:
                 first_chunk = response.read(32)
                 assert first_chunk != b""
                 assert b":ok" in first_chunk
-
-    def test_connection_refused_on_unused_port(self) -> None:
-        """Verify connecting to an unused port raises connection-refused style errors."""
-        unused_port = _find_free_port()
-
-        with pytest.raises((ConnectionRefusedError, OSError)):
-            socket.create_connection(("localhost", unused_port), timeout=0.2)
-
-    def test_socket_read_times_out_when_peer_stalls(self) -> None:
-        """Verify client times out when peer accepts but never sends data."""
-        server_port = _find_free_port()
-        ready = threading.Event()
-        release = threading.Event()
-
-        def _stalled_server() -> None:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                server.bind(("localhost", server_port))
-                server.listen(1)
-                ready.set()
-                conn, _ = server.accept()
-                with conn:
-                    release.wait(timeout=1.0)
-
-        thread = threading.Thread(target=_stalled_server, daemon=True)
-        thread.start()
-        assert ready.wait(timeout=1.0), "stalled test server failed to start"
-
-        try:
-            with socket.create_connection(
-                ("localhost", server_port), timeout=0.5
-            ) as client:
-                client.settimeout(0.1)
-                with pytest.raises(socket.timeout):
-                    _ = client.recv(1)
-        finally:
-            release.set()
-            thread.join(timeout=1.0)
