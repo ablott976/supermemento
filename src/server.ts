@@ -85,6 +85,18 @@ const getDocumentStatusArgsSchema = z.object({
   documentId: z.string().uuid()
 });
 
+const deleteDocumentArgsSchema = z.object({
+  documentId: z.string().uuid()
+});
+
+const updateDocumentArgsSchema = z.object({
+  documentId: z.string().uuid(),
+  title: z.string().min(1).optional(),
+  rawContent: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  status: z.nativeEnum(DocumentStatus).optional()
+});
+
 const listDocumentsArgsSchema = z.object({
   containerTag: z.string().min(1).optional(),
   status: z.nativeEnum(DocumentStatus).optional(),
@@ -98,11 +110,30 @@ const listMemoriesArgsSchema = z.object({
   limit: z.number().int().min(1).max(200).default(50)
 });
 
+const deleteMemoryArgsSchema = z.object({
+  memoryId: z.string().uuid()
+});
+
+const updateMemoryArgsSchema = z.object({
+  memoryId: z.string().uuid(),
+  content: z.string().min(1).optional(),
+  memoryType: z.nativeEnum(MemoryType).optional(),
+  isLatest: z.boolean().optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  validFrom: z.string().nullable().optional(),
+  validTo: z.string().nullable().optional(),
+  forgottenAt: z.string().nullable().optional()
+});
+
 const getMemoryRelationsArgsSchema = z.object({
   memoryId: z.string().uuid()
 });
 
 const forgetMemoryArgsSchema = z.object({
+  memoryId: z.string().uuid()
+});
+
+const reinforcePreferenceArgsSchema = z.object({
   memoryId: z.string().uuid()
 });
 
@@ -382,6 +413,16 @@ export class SupermementoServer {
           inputSchema: zodToJsonSchema(getDocumentStatusArgsSchema)
         },
         {
+          name: "delete_document",
+          description: "Delete a document by ID (hard delete)",
+          inputSchema: zodToJsonSchema(deleteDocumentArgsSchema)
+        },
+        {
+          name: "update_document",
+          description: "Update mutable fields on a document by ID",
+          inputSchema: zodToJsonSchema(updateDocumentArgsSchema)
+        },
+        {
           name: "list_documents",
           description: "List documents filtered by containerTag and optional status",
           inputSchema: zodToJsonSchema(listDocumentsArgsSchema)
@@ -390,6 +431,16 @@ export class SupermementoServer {
           name: "list_memories",
           description: "List memories filtered by containerTag, memoryType, and latest flag",
           inputSchema: zodToJsonSchema(listMemoriesArgsSchema)
+        },
+        {
+          name: "delete_memory",
+          description: "Delete a memory by ID",
+          inputSchema: zodToJsonSchema(deleteMemoryArgsSchema)
+        },
+        {
+          name: "update_memory",
+          description: "Update mutable fields on a memory by ID",
+          inputSchema: zodToJsonSchema(updateMemoryArgsSchema)
         },
         {
           name: "get_memory_relations",
@@ -409,6 +460,11 @@ export class SupermementoServer {
           name: "forget_memory",
           description: "Manually soft-delete a memory by ID",
           inputSchema: zodToJsonSchema(forgetMemoryArgsSchema)
+        },
+        {
+          name: "reinforce_preference",
+          description: "Increase confidence for a preference memory by ID",
+          inputSchema: zodToJsonSchema(reinforcePreferenceArgsSchema)
         },
         {
           name: "get_user_profile",
@@ -586,6 +642,26 @@ export class SupermementoServer {
             });
           }
 
+          case "delete_document": {
+            const input = deleteDocumentArgsSchema.parse(args);
+            const deleted = await this.neo4jClient.deleteDocument(input.documentId);
+            return asJson({ documentId: input.documentId, deleted });
+          }
+
+          case "update_document": {
+            const input = updateDocumentArgsSchema.parse(args);
+            const document = await this.neo4jClient.updateDocument(input.documentId, {
+              title: input.title,
+              rawContent: input.rawContent,
+              metadata: input.metadata,
+              status: input.status
+            });
+            if (!document) {
+              return asError(`Document not found: ${input.documentId}`);
+            }
+            return asJson({ document });
+          }
+
           case "list_documents": {
             const input = listDocumentsArgsSchema.parse(args);
             const documents = await this.neo4jClient.listDocuments(input);
@@ -598,6 +674,29 @@ export class SupermementoServer {
             // Strip embeddings to avoid huge responses (3072 floats per memory)
             const cleaned = memories.map(({ embedding, ...rest }) => rest);
             return asJson({ count: cleaned.length, memories: cleaned });
+          }
+
+          case "delete_memory": {
+            const input = deleteMemoryArgsSchema.parse(args);
+            const deleted = await this.neo4jClient.deleteMemory(input.memoryId);
+            return asJson({ memoryId: input.memoryId, deleted });
+          }
+
+          case "update_memory": {
+            const input = updateMemoryArgsSchema.parse(args);
+            const memory = await this.neo4jClient.updateMemory(input.memoryId, {
+              content: input.content,
+              memoryType: input.memoryType,
+              isLatest: input.isLatest,
+              confidence: input.confidence,
+              validFrom: input.validFrom,
+              validTo: input.validTo,
+              forgottenAt: input.forgottenAt
+            });
+            if (!memory) {
+              return asError(`Memory not found: ${input.memoryId}`);
+            }
+            return asJson({ memory });
           }
 
           case "get_memory_relations": {
@@ -615,6 +714,15 @@ export class SupermementoServer {
             const input = forgetMemoryArgsSchema.parse(args);
             const forgotten = await this.forgettingService.forgetMemory(input.memoryId);
             return asJson({ memoryId: input.memoryId, forgotten });
+          }
+
+          case "reinforce_preference": {
+            const input = reinforcePreferenceArgsSchema.parse(args);
+            const memory = await this.neo4jClient.reinforcePreference(input.memoryId);
+            if (!memory) {
+              return asError(`Preference memory not found or unavailable: ${input.memoryId}`);
+            }
+            return asJson({ memory });
           }
 
           case "get_user_profile": {
