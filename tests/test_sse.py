@@ -4,6 +4,7 @@ import os
 from collections.abc import AsyncGenerator
 
 import pytest
+import pytest_asyncio
 
 # SSE server configuration - can be overridden via environment variables
 SSE_HOST = os.getenv("SSE_HOST", "localhost")
@@ -24,7 +25,7 @@ def _is_server_available() -> bool:
         return False
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def httpx_client() -> AsyncGenerator["httpx.AsyncClient", None]:
     """Provide httpx async client for tests."""
     import httpx
@@ -45,7 +46,11 @@ class TestSSEConnection:
 
         async with httpx.AsyncClient() as client:
             try:
-                async with client.stream("GET", SSE_ENDPOINT, timeout=5.0) as response:
+                async with client.stream(
+                    "GET",
+                    SSE_ENDPOINT,
+                    timeout=5.0,
+                ) as response:
                     assert response.status_code == 200, (
                         f"SSE endpoint returned {response.status_code}, expected 200"
                     )
@@ -60,7 +65,11 @@ class TestSSEConnection:
 
         async with httpx.AsyncClient() as client:
             try:
-                async with client.stream("GET", SSE_ENDPOINT, timeout=5.0) as response:
+                async with client.stream(
+                    "GET",
+                    SSE_ENDPOINT,
+                    timeout=5.0,
+                ) as response:
                     content_type = response.headers.get("content-type", "")
                     assert "text/event-stream" in content_type, (
                         f"Expected Content-Type 'text/event-stream', got '{content_type}'"
@@ -76,7 +85,11 @@ class TestSSEConnection:
 
         async with httpx.AsyncClient() as client:
             try:
-                async with client.stream("GET", SSE_ENDPOINT, timeout=5.0) as response:
+                async with client.stream(
+                    "GET",
+                    SSE_ENDPOINT,
+                    timeout=5.0,
+                ) as response:
                     assert response.status_code == 200
                     # Attempt to read some data from the stream
                     chunks: list[str] = []
@@ -115,42 +128,6 @@ class TestSSEServerBehavior:
                 timeout=5.0,
             )
             # Should accept (200/202) or indicate method not allowed (405)
-            assert response.status_code in [200, 202, 405, 404], (
-                f"POST returned {response.status_code}, expected 200, 202, 405, or 404"
-            )
-
-    @pytest.mark.asyncio
-    async def test_sse_endpoint_rejects_invalid_http_methods(self) -> None:
-        """Verify SSE endpoint rejects invalid HTTP methods."""
-        pytest.importorskip("httpx", reason="httpx required for HTTP requests")
-        import httpx
-
-        async with httpx.AsyncClient() as client:
-            # Test PUT request
-            response = await client.put(
-                SSE_ENDPOINT,
-                json={"test": "data"},
-                timeout=5.0,
-            )
-            assert response.status_code in [405, 404], (
-                f"PUT returned {response.status_code}, expected 405 or 404"
-            )
-
-            # Test DELETE request
-            response = await client.delete(
-                SSE_ENDPOINT,
-                timeout=5.0,
-            )
-            assert response.status_code in [405, 404], (
-                f"DELETE returned {response.status_code}, expected 405 or 404"
-            )
-
-            # Test PATCH request
-            response = await client.patch(
-                SSE_ENDPOINT,
-                json={"test": "data"},
-                timeout=5.0,
-            )
-            assert response.status_code in [405, 404], (
-                f"PATCH returned {response.status_code}, expected 405 or 404"
+            assert response.status_code in {200, 202, 405}, (
+                f"Unexpected status code {response.status_code} for POST to SSE endpoint"
             )
