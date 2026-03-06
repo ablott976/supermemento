@@ -2,9 +2,13 @@
 
 import os
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
+
+if TYPE_CHECKING:
+    import httpx
 
 # SSE server configuration - can be overridden via environment variables
 SSE_HOST = os.getenv("SSE_HOST", "localhost")
