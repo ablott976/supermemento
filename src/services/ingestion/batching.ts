@@ -16,6 +16,10 @@ export type MemoryBatchInput = {
   validFrom?: string | null;
   validTo?: string | null;
 };
+export type BatchClassifier<TInput, TOutput> = (
+  batch: readonly TInput[],
+  batchIndex: number
+) => Promise<readonly TOutput[]>;
 
 /**
  * Splits an array into fixed-size batches.
@@ -172,4 +176,35 @@ export async function parallelExtractMemories(
   );
 
   return extractedByChunk.flat();
+}
+
+/**
+ * Classifies relations in batches with configurable parallelism.
+ */
+export async function batchClassifyRelations<TInput, TOutput>(
+  memories: readonly TInput[],
+  classifyBatch: BatchClassifier<TInput, TOutput>,
+  batchSize = 10,
+  maxConcurrency = 3
+): Promise<TOutput[]> {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new Error("batchSize must be a positive integer");
+  }
+
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency <= 0) {
+    throw new Error("maxConcurrency must be a positive integer");
+  }
+
+  if (memories.length === 0) {
+    return [];
+  }
+
+  const batches = chunkIntoBatches(memories, batchSize);
+  const classifiedByBatch = await mapWithConcurrency(
+    batches,
+    (batch, batchIndex) => classifyBatch(batch, batchIndex),
+    maxConcurrency
+  );
+
+  return classifiedByBatch.flat();
 }
