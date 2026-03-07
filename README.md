@@ -42,7 +42,54 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ## Getting Started
 
-See [docs/SPEC.md](docs/SPEC.md) for the complete development specification.
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment variables
+
+Create your local environment file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Required variables:
+- `NEO4J_URI`
+- `NEO4J_USER`
+- `NEO4J_PASSWORD`
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+
+Optional variables:
+- `ANTHROPIC_MODEL` (default: `claude-haiku-4-5-20251001`)
+- `OPENAI_EMBEDDING_MODEL` (default: `text-embedding-3-large`)
+
+### 3. Start Neo4j
+
+Run Neo4j locally with Docker Compose:
+
+```bash
+docker compose up -d neo4j
+```
+
+### 4. Initialize Neo4j schema
+
+This creates required constraints and indexes (including vector indexes):
+
+```bash
+npm run setup:schema
+```
+
+### 5. Run the server in development mode
+
+```bash
+npm run dev
+```
+
+For full architecture and implementation details, see [docs/SPEC.md](docs/SPEC.md).
 
 ## License
 
