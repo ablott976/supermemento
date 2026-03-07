@@ -133,6 +133,7 @@ export class IngestionPipeline {
         .filter((input): input is NonNullable<typeof input> => input !== null);
 
       const memoryIds = await batchCreateMemories(this.neo4jClient, memoryInputs);
+      const createdMemoryCount = memoryIds.length;
 
       if (memoryIds.length > 0) {
         const now = new Date().toISOString();
@@ -164,7 +165,7 @@ export class IngestionPipeline {
       return {
         document: finalDocument ?? extractedDoc ?? document,
         chunkCount: chunks.length,
-        memoryCount: extractedMemories.length,
+        memoryCount: createdMemoryCount,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown pipeline error";
