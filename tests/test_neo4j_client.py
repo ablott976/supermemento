@@ -1,4 +1,5 @@
 """Tests for Neo4j client TypeScript implementation."""
+
 from __future__ import annotations
 from pathlib import Path
 
@@ -54,7 +55,9 @@ def test_get_latest_memories_by_container_closes_session_on_error() -> None:
     assert "await session.close();" in source
 
 
-def test_get_latest_memories_by_container_remains_bounded_when_container_is_large() -> None:
+def test_get_latest_memories_by_container_remains_bounded_when_container_is_large() -> (
+    None
+):
     """Verify query remains bounded for containers with many active memories."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "const LIMIT_LATEST_MEMORIES = 100;" in source
@@ -64,7 +67,9 @@ def test_get_latest_memories_by_container_remains_bounded_when_container_is_larg
     assert "LIMIT $limit" in source
 
 
-def test_get_latest_memories_by_container_uses_parameterized_pagination_instead_of_unbounded_query() -> None:
+def test_get_latest_memories_by_container_uses_parameterized_pagination_instead_of_unbounded_query() -> (
+    None
+):
     """Verify pagination values are passed as parameterized integers to Cypher."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "MATCH (m:Memory {containerTag: $containerTag})" in source
@@ -73,14 +78,18 @@ def test_get_latest_memories_by_container_uses_parameterized_pagination_instead_
     assert "LIMIT $limit" in source
 
 
-def test_get_latest_memories_by_container_normalizes_invalid_pagination_inputs() -> None:
+def test_get_latest_memories_by_container_normalizes_invalid_pagination_inputs() -> (
+    None
+):
     """Verify invalid page/pageSize values are normalized to safe minimums."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "const boundedPage = Math.max(1, Math.floor(page));" in source
     assert "const boundedPageSize = Math.max(1, Math.floor(pageSize));" in source
 
 
-def test_get_latest_memories_by_container_calculates_page_offset_from_page_and_size() -> None:
+def test_get_latest_memories_by_container_calculates_page_offset_from_page_and_size() -> (
+    None
+):
     """Verify SKIP offset is derived from normalized page and pageSize."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "const skip = (boundedPage - 1) * boundedPageSize;" in source
