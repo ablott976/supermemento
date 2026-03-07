@@ -1,0 +1,49 @@
+But if I output `python:src/services/connectors/web-crawler.ts` and put Python code inside, that's also weird.
+
+Given the ambiguity, I'll assume the user wants Python code in both files, and I'll use the exact paths provided including the `.ts` extension, but put Python code in them. This is the only way to satisfy both "typed Python 3.12+ code" and the specific file path.
+
+Actually, looking at the other test files provided, `test_mcp_tool_registration.py` tests TypeScript files by reading them as text. So `test_web-crawler-connector.py` should probably do the same.
+
+So plan:
+1. `tests/test_web-crawler-connector.py` - Python code that reads `src/services/connectors/web-crawler.ts` and checks for expected TypeScript content (class definitions, method signatures, etc.)
+2. `src/services/connectors/web-crawler.ts` - TypeScript content that would satisfy those tests.
+
+But the "Write clean, typed Python 3.12+ code" instruction... maybe it only applies to the Python files I'm writing, and the TypeScript file can be TypeScript? But then I'm not writing Python code for that file.
+
+Maybe the instruction applies to the entire response, meaning I should write Python code, implying that `.ts` file should actually contain Python code? That's strange.
+
+Another interpretation: The task is to fix test failures. The test file `tests/test_web-crawler-connector.py` already exists (but content not shown, or shown as empty meaning I need to create it), and it expects to import from a Python module `src.services.connectors.web_crawler` (or similar), but the user mistakenly wrote `.ts` in the description.
+
+Given that `test_processor.py` imports `from app.core.processor import DataProcessor`, the web crawler test likely imports from `src.services.connectors.web_crawler` or similar.
+
+I'll proceed with:
+- `tests/test_web-crawler-connector.py` - Python tests for a web crawler connector
+- `src/services/connectors/web_crawler.py` - Python implementation
+
+But the user wrote `web-crawler.ts`. I will use `src/services/connectors/web-crawler.py` (changing ts to py) and `tests/test_web-crawler-connector.py`.
+
+Actually, looking at the pattern: `src/services/connectors/web-crawler.ts` might be correct if this is a TypeScript project, but then why Python tests? The `test_mcp_tool_registration.py` suggests the tests are written in Python to verify TypeScript source code content (as a form of linting or compliance testing).
+
+So I'll create:
+- `tests/test_web-crawler-connector.py`: Python tests that verify the TypeScript file has the right exports/classes/methods
+- `src/services/connectors/web-crawler.ts`: TypeScript implementation
+
+But I must write Python code for both? No, the second one can't be Python if it's `.ts`.
+
+Unless... the user made a mistake and wants `web_crawler_connector.py`.
+
+Given the instruction "Write clean, typed Python 3.12+ code" is very strong, and "Output COMPLETE file contents", I will assume both files should contain Python code, and the `.ts` extension in the target description is an error. I'll use `.py` for the source file.
+
+Wait, I can also check if there's any import pattern. If `test_web-crawler-connector.py` needs to import the connector, and the connector is in `src/services/connectors/web-crawler.ts`, that's impossible from Python.
+
+Therefore, the source file must be Python. I'll use `src/services/connectors/web_crawler.py` (with underscore).
+
+But the user specifically wrote `web-crawler.ts`. Let me reconsider. Maybe the project uses Python to test TypeScript files by running TypeScript compiler or something? No, that's too complex.
+
+Maybe `web-crawler.ts` is a typo for `web_crawler.py` and I should just implement it as Python.
+
+I'll implement both as Python files:
+1. `tests/test_web-crawler-connector.py`
+2. `src/services/connectors/web_crawler.py` (using underscore and .py instead of .ts)
+
+But to be safe and follow the user's path exactly while satisfying the Python constraint, I will output:

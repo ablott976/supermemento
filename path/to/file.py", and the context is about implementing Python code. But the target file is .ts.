@@ -1,0 +1,6 @@
+However, the instruction also says "Write clean, typed Python 3.12+ code". This is confusing because one file is TypeScript.
+
+But looking at the content of web-crawler.ts provided, it's definitely TypeScript (imports, classes, types, etc.). 
+
+I think the safest interpretation is:
+- For the Python file: use

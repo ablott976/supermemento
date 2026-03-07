@@ -1,0 +1,12 @@
+This suggests that regardless of the actual language, I should use the `python` tag followed by the path. But that would be syntax highlighting the TypeScript as Python, which is wrong.
+
+Alternatively, it could mean that the example shows a Python file, but for other files I should use the appropriate language tag.
+
+Given the ambiguity, and that the instruction says "Write clean, typed Python 3.12+ code", and the subtask is about ruff (a Python tool), I think the user might have made a mistake in the target files, or the web-crawler.ts is actually meant to be Python but was written in the prompt as TypeScript by mistake?
+
+No, looking at the Python test file, it's clearly testing a TypeScript file (checking for `class WebCrawlerConnector` which is TypeScript syntax).
+
+I think I should use the appropriate language tag for each file to ensure correct syntax highlighting and parsing, even though the example shows python:. The instruction says "ALWAYS include the file path after the language tag", not "always use python as the language".
+
+So:
+-

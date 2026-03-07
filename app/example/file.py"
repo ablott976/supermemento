@@ -1,1 +1,1 @@
-But that example shows `python:` for a Python file. For TypeScript, it should be `typescript:`. However, looking at the prompt, they showed the current code as:
+So I need to output:

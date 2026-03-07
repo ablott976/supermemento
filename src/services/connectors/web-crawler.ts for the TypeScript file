@@ -1,0 +1,3 @@
+Or if the system strictly requires `python:` for both, then I'll use that. But that seems odd.
+
+Looking at the critical instruction again: "CRITICAL: Always include the file path after the language tag (
