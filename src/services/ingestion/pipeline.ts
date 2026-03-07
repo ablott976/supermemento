@@ -193,21 +193,27 @@ export class IngestionPipeline {
   }
 
   private async classifyAndApply(memories: readonly Memory[]): Promise<void> {
+    const batchSize = 10;
+    const maxConcurrency = 3;
+
     await batchClassifyRelations(
       memories,
-      async (batch) =>
+      async (batch, batchIndex) =>
         Promise.all(
           batch.map(async (memory) => {
             try {
               return await this.relationClassifierService.classifyAndApply(memory);
             } catch (e) {
-              console.warn(`[pipeline] RelationClassifier skipped for memory ${memory.id}:`, (e as Error).message);
+              console.warn(
+                `[pipeline] RelationClassifier skipped for memory ${memory.id} in batch ${batchIndex}:`,
+                (e as Error).message
+              );
               return null;
             }
           })
         ),
-      10,
-      3
+      batchSize,
+      maxConcurrency
     );
   }
 
