@@ -1,5 +1,6 @@
 """Dashboard routes for services, chatbot configuration, and conversations."""
 from typing import Any
+
 from flask import Blueprint, jsonify, request, render_template
 
 # Create blueprint for dashboard routes
@@ -82,6 +83,7 @@ def create_service() -> tuple[dict[str, Any], int]:
             "monthly_cost": float(data.get("monthly_cost", 0)) if data.get("monthly_cost") else 0.0,
             "description": data.get("description", ""),
         }
+        
         return jsonify({"service": new_service, "status": "success"}), 201
     except ValueError as e:
         return jsonify({"error": str(e), "status": "error"}), 400
@@ -117,6 +119,7 @@ def update_service(service_id: int) -> tuple[dict[str, Any], int]:
             "monthly_cost": float(data.get("monthly_cost", 0)) if data.get("monthly_cost") is not None else None,
             "description": data.get("description"),
         }
+        
         return jsonify({"service": updated_service, "status": "success"})
     except ValueError as e:
         return jsonify({"error": str(e), "status": "error"}), 400
@@ -135,201 +138,129 @@ def delete_service(service_id: int) -> tuple[dict[str, Any], int]:
         Tuple of response dictionary and HTTP status code.
     """
     try:
-        return jsonify(
-            {
-                "message": f"Service {service_id} cancelled successfully", 
-                "service_id": service_id,
-                "status": "cancelled"
-            }
-        ), 200
-    except Exception as e:
-        return jsonify({"error": str(e), "status": "error"}), 500
-
-
-@dashboard_bp.route("/services/tab", methods=["GET"])
-def services_tab() -> Any:
-    """Render the services tab template with contracted services.
-    
-    Returns:
-        Rendered HTML template.
-    """
-    try:
-        # Mock data for contracted services
-        services = [
-            {
-                "id": 1,
-                "name": "Premium Support Package",
-                "client": "Acme Corporation",
-                "status": "active",
-                "start_date": "2024-01-01",
-                "end_date": "2024-12-31",
-                "monthly_cost": 500.00,
-                "description": "24/7 premium technical support"
-            },
-            {
-                "id": 2,
-                "name": "Basic Consulting",
-                "client": "TechStart Inc",
-                "status": "pending",
-                "start_date": "2024-03-01",
-                "end_date": "2025-02-28",
-                "monthly_cost": 200.00,
-                "description": "Monthly consulting hours"
-            },
-            {
-                "id": 3,
-                "name": "Enterprise License",
-                "client": "Global Systems",
-                "status": "cancelled",
-                "start_date": "2023-06-01",
-                "end_date": "2024-05-31",
-                "monthly_cost": 1200.00,
-                "description": "Full enterprise feature access"
-            }
-        ]
-        return render_template("services/tab.html", services=services)
-    except Exception as e:
-        return jsonify({"error": str(e), "status": "error"}), 500
-
-
-@dashboard_bp.route("/chatbot-config", methods=["GET"])
-def get_chatbot_config() -> dict[str, Any]:
-    """Retrieve chatbot configuration.
-    
-    Returns:
-        Dictionary containing chatbot configuration settings.
-    """
-    try:
-        chatbot_status = "active"
-        status_indicator = {
-            "value": chatbot_status,
-            "label": "Active",
-            "color": "green",
-        }
-        knowledge_file = {
-            "name": "support-knowledge-base.pdf",
-            "size": "2.4 MB",
-            "last_updated": "2024-01-12T14:30:00",
-            "status": "indexed",
-        }
-        config = {
-            "id": 1,
-            "name": "Support Assistant",
-            "description": "Handles customer support questions for dashboard users.",
-            "status": chatbot_status,
-            "model": "gpt-4",
-            "temperature": 0.7,
-            "max_tokens": 150,
-            "timeout": 30,
-            "system_prompt": "You are a helpful assistant.",
-            "streaming": True,
-            "context_retention": True,
-            "context_window": 10,
-            "knowledge_file": knowledge_file,
-            "status_indicator": status_indicator,
-        }
-        return jsonify({"config": config, "status": "success"})
-    except Exception as e:
-        return jsonify({"error": str(e), "status": "error"}), 500
-
-
-@dashboard_bp.route("/chatbot-config/tab", methods=["GET"])
-def chatbot_config_tab() -> Any:
-    """Render chatbot configuration tab with chatbot fields and status details."""
-    try:
-        chatbot_status = "active"
-        status_indicator = {
-            "value": chatbot_status,
-            "label": "Active",
-            "color": "green",
-        }
-        knowledge_file = {
-            "name": "support-knowledge-base.pdf",
-            "size": "2.4 MB",
-            "last_updated": "2024-01-12T14:30:00",
-            "status": "indexed",
-        }
-        chatbot = {
-            "id": 1,
-            "name": "Support Assistant",
-            "description": "Handles customer support questions for dashboard users.",
-            "status": chatbot_status,
-            "model": "gpt-4",
-            "temperature": 0.7,
-            "max_tokens": 150,
-            "timeout": 30,
-            "system_prompt": "You are a helpful assistant.",
-            "streaming": True,
-            "context_retention": True,
-            "context_window": 10,
-            "knowledge_file": knowledge_file,
-            "status_indicator": status_indicator,
-        }
-        return render_template(
-            "chatbots/config.html",
-            chatbot=chatbot,
-            knowledge_file=knowledge_file,
-            status_indicator=status_indicator,
-        )
-    except Exception as e:
-        return jsonify({"error": str(e), "status": "error"}), 500
-
-
-@dashboard_bp.route("/chatbot-config", methods=["PUT", "POST"])
-def update_chatbot_config() -> tuple[dict[str, Any], int]:
-    """Update chatbot configuration.
-    
-    Returns:
-        Updated configuration data.
-        
-    Raises:
-        ValueError: If configuration data is empty or missing required fields.
-    """
-    try:
-        data = request.get_json()
-        if not data:
-            raise ValueError("Configuration data cannot be empty")
-        
-        required_fields = ["model", "temperature"]
-        for field in required_fields:
-            if field not in data:
-                raise ValueError(f"Missing required field: {field}")
-        
-        updated_config = {
-            "id": data.get("id", 1),
-            "name": data.get("name", "Support Assistant"),
-            "description": data.get("description", ""),
-            "status": data.get("status", "active"),
-            "model": data["model"],
-            "temperature": float(data["temperature"]),
-            "max_tokens": data.get("max_tokens", 150),
-            "timeout": data.get("timeout", 30),
-            "system_prompt": data.get("system_prompt", ""),
-            "streaming": data.get("streaming", True),
-            "context_retention": data.get("context_retention", True),
-            "context_window": data.get("context_window", 10),
-            "knowledge_file": data.get("knowledge_file"),
-            "status_indicator": data.get("status_indicator"),
-        }
-        return jsonify({"config": updated_config, "status": "success"})
-    except ValueError as e:
-        return jsonify({"error": str(e), "status": "error"}), 400
+        return jsonify({
+            "message": f"Service {service_id} cancelled successfully",
+            "service_id": service_id,
+            "status": "success"
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
 @dashboard_bp.route("/conversations", methods=["GET"])
-def get_conversations() -> dict[str, Any]:
-    """Retrieve list of conversations.
+def list_conversations() -> Any:
+    """List all conversations.
     
     Returns:
-        Dictionary containing conversation summaries.
+        Rendered template with conversations list.
     """
     try:
+        # Mock data for conversations
         conversations = [
-            {"id": 1, "title": "Support Request #123", "last_message": "Thank you for your help", "timestamp": "2024-01-15T10:30:00"},
-            {"id": 2, "title": "Sales Inquiry", "last_message": "Can you provide pricing?", "timestamp": "2024-01-15T09:15:00"},
+            {
+                "id": 1,
+                "subject": "Support Request #1234",
+                "status": "active",
+                "created_at": "2024-01-15T10:30:00",
+                "updated_at": "2024-01-15T14:20:00",
+                "client": "Acme Corporation",
+                "preview": "Hello, I'm having trouble with the login functionality...",
+                "message_count": 5,
+                "priority": "high"
+            },
+            {
+                "id": 2,
+                "subject": "Billing Inquiry",
+                "status": "pending",
+                "created_at": "2024-01-14T09:15:00",
+                "updated_at": "2024-01-14T16:45:00",
+                "client": "TechStart Inc",
+                "preview": "Can you help me understand the charges on my invoice...",
+                "message_count": 3,
+                "priority": "medium"
+            },
+            {
+                "id": 3,
+                "subject": "Feature Request",
+                "status": "closed",
+                "created_at": "2024-01-10T11:00:00",
+                "updated_at": "2024-01-12T13:30:00",
+                "client": "Global Systems",
+                "preview": "Would it be possible to add export functionality...",
+                "message_count": 8,
+                "priority": "low"
+            }
         ]
-        return jsonify({"conversations": conversations, "status": "success"})
+        return render_template("conversations/list.html", conversations=conversations)
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "error"}), 500
+
+
+@dashboard_bp.route("/conversations/<int:conversation_id>", methods=["GET"])
+def get_conversation(conversation_id: int) -> Any:
+    """Get a specific conversation with full message thread.
+    
+    Args:
+        conversation_id: ID of the conversation to retrieve.
+        
+    Returns:
+        Rendered template with conversation details.
+    """
+    try:
+        # Mock data for a single conversation with messages
+        conversation = {
+            "id": conversation_id,
+            "subject": "Support Request #1234",
+            "status": "active",
+            "created_at": "2024-01-15T10:30:00",
+            "updated_at": "2024-01-15T14:20:00",
+            "client": "Acme Corporation",
+            "client_email": "contact@acme.com",
+            "assignee": "Sarah Johnson",
+            "priority": "high",
+            "messages": [
+                {
+                    "id": 1,
+                    "sender": "client",
+                    "sender_name": "John Smith",
+                    "content": "Hello, I'm having trouble with the login functionality. When I try to access my account, I get an error message saying 'Invalid credentials' even though I'm sure my password is correct.",
+                    "timestamp": "2024-01-15T10:30:00",
+                    "type": "text"
+                },
+                {
+                    "id": 2,
+                    "sender": "agent",
+                    "sender_name": "Sarah Johnson",
+                    "content": "Hi John, I'm sorry to hear you're having trouble logging in. Let me help you troubleshoot this issue. Can you confirm if you're using the email address associated with your account?",
+                    "timestamp": "2024-01-15T11:15:00",
+                    "type": "text"
+                },
+                {
+                    "id": 3,
+                    "sender": "client",
+                    "sender_name": "John Smith",
+                    "content": "Yes, I'm using john.smith@acme.com which is the email I registered with.",
+                    "timestamp": "2024-01-15T11:45:00",
+                    "type": "text"
+                },
+                {
+                    "id": 4,
+                    "sender": "agent",
+                    "sender_name": "Sarah Johnson",
+                    "content": "Thank you for confirming. I've checked your account and I can see that your account is active. The issue might be related to a recent password reset. Could you try clearing your browser cache and attempting to log in again? If that doesn't work, I can initiate a password reset for you.",
+                    "timestamp": "2024-01-15T13:20:00",
+                    "type": "text"
+                },
+                {
+                    "id": 5,
+                    "sender": "client",
+                    "sender_name": "John Smith",
+                    "content": "Clearing the cache worked! I'm now able to log in. Thank you for your help.",
+                    "timestamp": "2024-01-15T14:20:00",
+                    "type": "text"
+                }
+            ]
+        }
+        return render_template("conversations/detail.html", conversation=conversation)
     except Exception as e:
         return jsonify({"error": str(e), "status": "error"}), 500
