@@ -1,257 +1,312 @@
-import neo4j, { Driver, Integer, Node } from "neo4j-driver";
-import { v4 as uuidv4 } from "uuid";
-import type { AppConfig } from "../config.js";
-import { DocumentStatus, MemoryType, RelationType } from "../types/enums.js";
-import type { Chunk, ChunkSearchHit, Document, Memory, MemoryRelation, MemorySearchHit, Metadata, Profile } from "../types/models.js";
+import uuid
+ from datetime import datetime
+ from typing import Any, Optional, TypedDict, cast
 
-type DocumentCreateInput = {
-  title: string;
-  contentType: Document["contentType"];
-  rawContent: string;
-  containerTag: string;
-  metadata?: Metadata;
-  sourceUrl?: string | null;
-  filePath?: string | null;
-};
+ from neo4j import AsyncDriver, AsyncGraphDatabase
+ from neo4j.graph import Node
 
-type DocumentUpdateInput = {
-  title?: string;
-  rawContent?: string;
-  metadata?: Metadata | string;
-  status?: DocumentStatus;
-};
+ from ..config import AppConfig
+ from ..types.enums import DocumentStatus, MemoryType, RelationType
+ from ..types.models import (
+     Chunk,
+     ChunkSearchHit,
+     Document,
+     Memory,
+     MemoryRelation,
+     MemorySearchHit,
+     Metadata,
+     Profile,
+ )
 
-type MemoryCreateInput = {
-  content: string;
-  memoryType: MemoryType;
-  containerTag: string;
-  confidence: number;
-  embedding: number[];
-  sourceDocId: string;
-  validFrom?: string | null;
-  validTo?: string | null;
-};
 
-type MemoryUpdateInput = {
-  content?: string;
-  memoryType?: MemoryType;
-  isLatest?: boolean;
-  confidence?: number;
-  validFrom?: string | null;
-  validTo?: string | null;
-  forgottenAt?: string | null;
-};
+ class DocumentCreateInput(TypedDict):
+     title: str
+     content_type: str  # Document["contentType"] in TS
+     raw_content: str
+     container_tag: str
+     metadata: Optional[Metadata]
+     source_url: Optional[str]
+     file_path: Optional[str]
 
-type ChunkCreateInput = {
-  content: string;
-  embedding: number[];
-  chunkIndex: number;
-  containerTag: string;
-  metadata?: Metadata | string;
-  sourceDocId: string;
-};
 
-/** Neo4j data access layer for Documents, Memories, and relations. */
-export class Neo4jClient {
-  private readonly driver: Driver;
+ class DocumentUpdateInput(TypedDict, total=False):
+     title: str
+     raw_content: str
+     metadata: Metadata | str
+     status: DocumentStatus
 
-  /**
-   * Creates a new Neo4j client from runtime config.
-   * @param config Parsed application configuration.
-   */
-  public constructor(config: AppConfig) {
-    this.driver = neo4j.driver(
-      config.NEO4J_URI,
-      neo4j.auth.basic(config.NEO4J_USER, config.NEO4J_PASSWORD)
-    );
-  }
 
-  /**
-   * Ensures the database connection is valid.
-   */
-  public async verifyConnectivity(): Promise<void> {
-    await this.driver.verifyConnectivity();
-  }
+ class MemoryCreateInput(TypedDict):
+     content: str
+     memory_type: MemoryType
+     container_tag: str
+     confidence: float
+     embedding: list[float]
+     source_doc_id: str
+     valid_from: Optional[str]
+     valid_to: Optional[str]
 
-  /**
-   * Returns the underlying driver for low-level operations.
-   */
-  public getDriver(): Driver {
-    return this.driver;
-  }
 
-  /**
-   * Closes the Neo4j driver.
-   */
-  public async close(): Promise<void> {
-    await this.driver.close();
-  }
+ class MemoryUpdateInput(TypedDict, total=False):
+     content: str
+     memory_type: MemoryType
+     is_latest: bool
+     confidence: float
+     valid_from: Optional[str]
+     valid_to: Optional[str]
+     forgotten_at: Optional[str]
 
-  /**
-   * Creates a :Document node.
-   * @param input Document fields.
-   * @returns Created document.
-   */
-  public async createDocument(input: DocumentCreateInput): Promise<Document> {
-    const session = this.driver.session();
-    const now = new Date().toISOString();
-    const id = uuidv4();
-    try {
-      const result = await session.run(
-        `
-        CREATE (d:Document {
-          id: $id,
-          title: $title,
-          contentType: $contentType,
-          rawContent: $rawContent,
-          sourceUrl: $sourceUrl,
-          filePath: $filePath,
-          containerTag: $containerTag,
-          metadata: $metadata,
-          status: $status,
-          createdAt: datetime($createdAt),
-          updatedAt: datetime($updatedAt)
-        })
-        RETURN d
-        `,
-        {
-          id,
-          title: input.title,
-          contentType: input.contentType,
-          rawContent: input.rawContent,
-          sourceUrl: input.sourceUrl ?? null,
-          filePath: input.filePath ?? null,
-          containerTag: input.containerTag,
-          metadata: input.metadata
-            ? typeof input.metadata === "string"
-              ? input.metadata
-              : JSON.stringify(input.metadata)
-            : "{}",
-          status: DocumentStatus.Queued,
-          createdAt: now,
-          updatedAt: now,
-        }
-      );
-      return this.mapDocument(result.records[0]?.get("d"));
-    } finally {
-      await session.close();
-    }
-  }
 
-  /**
-   * Returns a document by id.
-   * @param documentId Document identifier.
-   */
-  public async getDocument(documentId: string): Promise<Document | null> {
-    const session = this.driver.session();
-    try {
-      const result = await session.run(
-        "MATCH (d:Document {id: $id}) RETURN d LIMIT 1",
-        { id: documentId }
-      );
-      if (result.records.length === 0) {
-        return null;
-      }
-      return this.mapDocument(result.records[0]?.get("d"));
-    } finally {
-      await session.close();
-    }
-  }
+ class ChunkCreateInput(TypedDict):
+     content: str
+     embedding: list[float]
+     chunk_index: int
+     container_tag: str
+     metadata: Optional[Metadata | str]
+     source_doc_id: str
 
-  /**
-   * Lists documents filtered by container tag and optional status.
-   * @param params Listing filters.
-   */
-  public async listDocuments(params: {
-    containerTag?: string;
-    status?: DocumentStatus;
-    limit?: number;
-  }): Promise<Document[]> {
-    const session = this.driver.session();
-    try {
-      const result = await session.run(
-        `
-        MATCH (d:Document)
-        WHERE ($containerTag IS NULL OR d.containerTag = $containerTag)
-          AND ($status IS NULL OR d.status = $status)
-        RETURN d
-        ORDER BY d.createdAt DESC
-        LIMIT $limit
-        `,
-        {
-          containerTag: params.containerTag ?? null,
-          status: params.status ?? null,
-          limit: neo4j.int(params.limit ?? 50),
-        }
-      );
-      return result.records.map((record) => this.mapDocument(record.get("d")));
-    } finally {
-      await session.close();
-    }
-  }
 
-  /**
-   * Performs filtered vector search on Memory nodes using the 'memory_embeddings' vector index.
-   * Filters support containerTag, memoryType, minConfidence, and sourceDocId.
-   * @param params Search parameters including embedding vector and optional filters.
-   * @returns Array of memory search hits with similarity scores.
-   */
-  public async searchMemories(params: {
-    embedding: number[];
-    k?: number;
-    containerTag?: string;
-    memoryType?: MemoryType;
-    minConfidence?: number;
-    sourceDocId?: string;
-  }): Promise<MemorySearchHit[]> {
-    const session = this.driver.session();
-    try {
-      const result = await session.run(
-        `
-        CALL db.index.vector.queryNodes('memory_embeddings', $k, $embedding)
-        YIELD node, score
-        WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
-          AND ($memoryType IS NULL OR node.memoryType = $memoryType)
-          AND ($minConfidence IS NULL OR node.confidence >= $minConfidence)
-          AND ($sourceDocId IS NULL OR node.sourceDocId = $sourceDocId)
-        RETURN node, score
-        ORDER BY score DESC
-        LIMIT $k
-        `,
-        {
-          embedding: params.embedding,
-          k: neo4j.int(params.k ?? 10),
-          containerTag: params.containerTag ?? null,
-          memoryType: params.memoryType ?? null,
-          minConfidence: params.minConfidence ?? null,
-          sourceDocId: params.sourceDocId ?? null,
-        }
-      );
-      return result.records.map((record) => ({
-        memory: this.mapMemory(record.get("node")),
-        score: record.get("score"),
-      }));
-    } finally {
-      await session.close();
-    }
-  }
-
-  /**
-   * Performs filtered vector search on Chunk nodes using the 'chunk_embeddings' vector index.
-   * Filters support containerTag and sourceDocId.
-   * @param params Search parameters including embedding vector and optional filters.
-   * @returns Array of chunk search hits with similarity scores.
-   */
-  public async searchChunks(params: {
-    embedding: number[];
-    k?: number;
-    containerTag?: string;
-    sourceDocId?: string;
-  }): Promise<ChunkSearchHit[]> {
-    const session = this.driver.session();
-    try {
-      const result = await session.run(
-        `
-        CALL db.index.vector.queryNodes('chunk_embeddings', $k, $embedding)
-        YIELD node, score
-        WHERE ($containerTag
+ class Neo4jClient:
+     """Neo4j data access layer for Documents, Memories, and relations."""
+     
+     def __init__(self, config: AppConfig) -> None:
+         """Creates a new Neo4j client from runtime config."""
+         self.driver: AsyncDriver = AsyncGraphDatabase.driver(
+             config.NEO4J_URI,
+             auth=(config.NEO4J_USER, config.NEO4J_PASSWORD)
+         )
+     
+     async def verify_connectivity(self) -> None:
+         """Ensures the database connection is valid."""
+         await self.driver.verify_connectivity()
+     
+     def get_driver(self) -> AsyncDriver:
+         """Returns the underlying driver for low-level operations."""
+         return self.driver
+     
+     async def close(self) -> None:
+         """Closes the Neo4j driver."""
+         await self.driver.close()
+     
+     async def create_document(self, input: DocumentCreateInput) -> Document:
+         """Creates a :Document node."""
+         async with self.driver.session() as session:
+             now = datetime.now().isoformat()
+             doc_id = str(uuid.uuid4())
+             
+             metadata = input.get("metadata")
+             metadata_str = json.dumps(metadata) if isinstance(metadata, dict) else (metadata or "{}")
+             
+             result = await session.run(
+                 """
+                 CREATE (d:Document {
+                     id: $id,
+                     title: $title,
+                     contentType: $contentType,
+                     rawContent: $rawContent,
+                     sourceUrl: $sourceUrl,
+                     filePath: $filePath,
+                     containerTag: $containerTag,
+                     metadata: $metadata,
+                     status: $status,
+                     createdAt: datetime($createdAt),
+                     updatedAt: datetime($updatedAt)
+                 })
+                 RETURN d
+                 """,
+                 {
+                     "id": doc_id,
+                     "title": input["title"],
+                     "contentType": input["content_type"],
+                     "rawContent": input["raw_content"],
+                     "sourceUrl": input.get("source_url"),
+                     "filePath": input.get("file_path"),
+                     "containerTag": input["container_tag"],
+                     "metadata": metadata_str,
+                     "status": DocumentStatus.QUEUED.value,
+                     "createdAt": now,
+                     "updatedAt": now,
+                 }
+             )
+             
+             record = await result.single()
+             if not record:
+                 raise RuntimeError("Failed to create document")
+             return self._map_document(record["d"])
+     
+     async def get_document(self, document_id: str) -> Optional[Document]:
+         """Returns a document by id."""
+         async with self.driver.session() as session:
+             result = await session.run(
+                 "MATCH (d:Document {id: $id}) RETURN d LIMIT 1",
+                 {"id": document_id}
+             )
+             record = await result.single()
+             if not record:
+                 return None
+             return self._map_document(record["d"])
+     
+     async def list_documents(
+         self, 
+         container_tag: Optional[str] = None,
+         status: Optional[DocumentStatus] = None,
+         limit: int = 50
+     ) -> list[Document]:
+         """Lists documents filtered by container tag and optional status."""
+         async with self.driver.session() as session:
+             result = await session.run(
+                 """
+                 MATCH (d:Document)
+                 WHERE ($containerTag IS NULL OR d.containerTag = $containerTag)
+                 AND ($status IS NULL OR d.status = $status)
+                 RETURN d
+                 ORDER BY d.createdAt DESC
+                 LIMIT $limit
+                 """,
+                 {
+                     "containerTag": container_tag,
+                     "status": status.value if status else None,
+                     "limit": limit,
+                 }
+             )
+             
+             documents: list[Document] = []
+             async for record in result:
+                 documents.append(self._map_document(record["d"]))
+             return documents
+     
+     async def search_chunks(
+         self,
+         embedding: list[float],
+         k: int,
+         filter_dict: dict[str, Any],
+         index_name: str = "chunk-embeddings"
+     ) -> list[ChunkSearchHit]:
+         """
+         Performs filtered vector search on chunks by passing filter to queryNodes procedure directly.
+         
+         Args:
+             embedding: The query embedding vector
+             k: Number of nearest neighbors to return
+             filter_dict: Filter map passed directly to queryNodes procedure (e.g., {"containerTag": "xyz"})
+             index_name: Name of the vector index
+             
+         Returns:
+             List of chunk search hits with similarity scores
+         """
+         async with self.driver.session() as session:
+             result = await session.run(
+                 """
+                 CALL db.index.vector.queryNodes($index_name, $k, $embedding, $filter) 
+                 YIELD node, score
+                 RETURN node, score
+                 """,
+                 {
+                     "index_name": index_name,
+                     "k": k,
+                     "embedding": embedding,
+                     "filter": filter_dict
+                 }
+             )
+             
+             hits: list[ChunkSearchHit] = []
+             async for record in result:
+                 node = cast(Node, record["node"])
+                 score = float(record["score"])
+                 chunk = self._map_chunk(node)
+                 hits.append(ChunkSearchHit(chunk=chunk, score=score))
+             
+             return hits
+     
+     async def search_memories(
+         self,
+         embedding: list[float],
+         k: int,
+         filter_dict: dict[str, Any],
+         index_name: str = "memory-embeddings"
+     ) -> list[MemorySearchHit]:
+         """
+         Performs filtered vector search on memories by passing filter to queryNodes procedure directly.
+         
+         Args:
+             embedding: The query embedding vector
+             k: Number of nearest neighbors to return
+             filter_dict: Filter map passed directly to queryNodes procedure
+             index_name: Name of the vector index
+             
+         Returns:
+             List of memory search hits with similarity scores
+         """
+         async with self.driver.session() as session:
+             result = await session.run(
+                 """
+                 CALL db.index.vector.queryNodes($index_name, $k, $embedding, $filter) 
+                 YIELD node, score
+                 RETURN node, score
+                 """,
+                 {
+                     "index_name": index_name,
+                     "k": k,
+                     "embedding": embedding,
+                     "filter": filter_dict
+                 }
+             )
+             
+             hits: list[MemorySearchHit] = []
+             async for record in result:
+                 node = cast(Node, record["node"])
+                 score = float(record["score"])
+                 memory = self._map_memory(node)
+                 hits.append(MemorySearchHit(memory=memory, score=score))
+             
+             return hits
+     
+     def _map_chunk(self, node: Node) -> Chunk:
+         """Maps a Neo4j node to a Chunk model."""
+         props = dict(node)
+         return Chunk(
+             id=props.get("id", ""),
+             content=props.get("content", ""),
+             embedding=props.get("embedding", []),
+             chunk_index=props.get("chunkIndex", 0),
+             container_tag=props.get("containerTag", ""),
+             source_doc_id=props.get("sourceDocId", ""),
+             metadata=props.get("metadata", {}),
+             created_at=props.get("createdAt", datetime.now().isoformat())
+         )
+     
+     def _map_memory(self, node: Node) -> Memory:
+         """Maps a Neo4j node to a Memory model."""
+         props = dict(node)
+         return Memory(
+             id=props.get("id", ""),
+             content=props.get("content", ""),
+             memory_type=MemoryType(props.get("memoryType", "fact")),
+             container_tag=props.get("containerTag", ""),
+             confidence=props.get("confidence", 1.0),
+             embedding=props.get("embedding", []),
+             source_doc_id=props.get("sourceDocId", ""),
+             is_latest=props.get("isLatest", True),
+             valid_from=props.get("validFrom"),
+             valid_to=props.get("validTo"),
+             created_at=props.get("createdAt", datetime.now().isoformat()),
+             updated_at=props.get("updatedAt", datetime.now().isoformat()),
+             forgotten_at=props.get("forgottenAt")
+         )
+     
+     def _map_document(self, node: Node) -> Document:
+         """Maps a Neo4j node to a Document model."""
+         props = dict(node)
+         return Document(
+             id=props.get("id", ""),
+             title=props.get("title", ""),
+             content_type=props.get("contentType", ""),
+             raw_content=props.get("rawContent", ""),
+             container_tag=props.get("containerTag", ""),
+             metadata=props.get("metadata", {}),
+             status=DocumentStatus(props.get("status", "queued")),
+             source_url=props.get("sourceUrl"),
+             file_path=props.get("filePath"),
+             created_at=props.get("createdAt", datetime.now().isoformat()),
+             updated_at=props.get("updatedAt", datetime.now().isoformat())
+         )

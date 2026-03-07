@@ -1,0 +1,5 @@
+Given the explicit instruction "Write clean, typed Python 3.12+ code", I will provide Python code that implements the same functionality as the TypeScript shown, but adapted to Python. This would mean creating a Python version of the Neo4jClient class.
+
+ However, the target path is src/db/neo4j-client.ts which is a TypeScript file. If I output Python code with that path, it would be incorrect.
+
+ Looking at the rules: "Output COMPLETE file contents using EXACTLY this format (required):
