@@ -696,3 +696,143 @@ test("processDocument sets error status when batch memory creation fails", async
   assert.equal(errorUpdate.payload.status, DocumentStatus.Error);
   assert.match(String(errorUpdate.payload.metadata), /neo4j write failed/);
 });
+
+test("processDocument sets error status when chunk creation fails", async () => {
+  const updateCalls: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const now = new Date().toISOString();
+  const document = {
+    id: "doc-chunk-db-fail",
+    title: "Test Doc",
+    contentType: ContentType.Text,
+    rawContent: "alpha\n\nbeta",
+    sourceUrl: null,
+    filePath: null,
+    containerTag: "inbox",
+    metadata: {},
+    status: DocumentStatus.Queued,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const neo4jClient = {
+    getDocument: async () => document,
+    updateDocument: async (id: string, payload: Record<string, unknown>) => {
+      updateCalls.push({ id, payload });
+      return { ...document, ...payload };
+    },
+    getContainerFilterPrompt: async () => null,
+    createChunks: async () => {
+      throw new Error("chunk write failed");
+    },
+    getDriver: () => ({
+      session: () => ({
+        run: async () => ({ records: [] }),
+        close: async () => undefined,
+      }),
+    }),
+  };
+
+  const embeddingService = {
+    generateEmbeddings: async (inputs: readonly string[]) => inputs.map(() => [0.01, 0.02]),
+  };
+
+  const relationClassifierService = {
+    classifyAndApply: async () => undefined,
+  };
+
+  const memoryExtractorService = {
+    extractFromChunk: async () => [] as ExtractedMemory[],
+  };
+
+  const pipeline = new IngestionPipeline(
+    neo4jClient as never,
+    embeddingService as never,
+    relationClassifierService as never,
+    memoryExtractorService as never
+  );
+
+  await assert.rejects(
+    pipeline.processDocument(document.id),
+    /chunk write failed/
+  );
+
+  const errorUpdate = updateCalls.at(-1);
+  assert.ok(errorUpdate);
+  assert.equal(errorUpdate.id, document.id);
+  assert.equal(errorUpdate.payload.status, DocumentStatus.Error);
+  assert.match(String(errorUpdate.payload.metadata), /chunk write failed/);
+});
+
+test("processDocument continues when relation classification fails for a memory", async () => {
+  const updateCalls: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  let classifierCalls = 0;
+  const now = new Date().toISOString();
+  const document = {
+    id: "doc-classifier-fail",
+    title: "Test Doc",
+    contentType: ContentType.Text,
+    rawContent: "alpha\n\nbeta",
+    sourceUrl: null,
+    filePath: null,
+    containerTag: "inbox",
+    metadata: {},
+    status: DocumentStatus.Queued,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const neo4jClient = {
+    getDocument: async () => document,
+    updateDocument: async (id: string, payload: Record<string, unknown>) => {
+      updateCalls.push({ id, payload });
+      return { ...document, ...payload };
+    },
+    getContainerFilterPrompt: async () => null,
+    createChunks: async () => undefined,
+    getDriver: () => ({
+      session: () => ({
+        run: async () => ({
+          records: [{ get: () => "memory-1" }],
+        }),
+        close: async () => undefined,
+      }),
+    }),
+  };
+
+  const embeddingService = {
+    generateEmbeddings: async (inputs: readonly string[]) => inputs.map(() => [0.01, 0.02]),
+  };
+
+  const relationClassifierService = {
+    classifyAndApply: async () => {
+      classifierCalls += 1;
+      throw new Error("relation llm failed");
+    },
+  };
+
+  const memoryExtractorService = {
+    extractFromChunk: async () => [
+      {
+        content: "memory from chunk",
+        memoryType: MemoryType.Fact,
+        confidence: 0.94,
+        validFrom: null,
+        validTo: null,
+      },
+    ],
+  };
+
+  const pipeline = new IngestionPipeline(
+    neo4jClient as never,
+    embeddingService as never,
+    relationClassifierService as never,
+    memoryExtractorService as never
+  );
+
+  const result = await pipeline.processDocument(document.id);
+
+  assert.equal(result.memoryCount, 1);
+  assert.equal(classifierCalls, 1);
+  assert.ok(updateCalls.some((call) => call.payload.status === DocumentStatus.Done));
+  assert.equal(updateCalls.some((call) => call.payload.status === DocumentStatus.Error), false);
+});
