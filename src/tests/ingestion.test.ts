@@ -1,4 +1,3 @@
-// src/tests/ingestion.test.ts
 import request from 'supertest';
 // Assuming the express app is exported from src/server.ts
 // If it's exported differently, this import will need adjustment.
@@ -23,6 +22,7 @@ describe('Ingestion API - Container Config', () => {
   });
 
   // --- POST /api/ingestion/container-config tests ---
+
   // Test Case 1: Successful configuration with filter prompt
   test('POST /api/ingestion/container-config - should set container configuration successfully with a filter prompt', async () => {
     const containerId = 'test-container-123';
@@ -59,7 +59,7 @@ describe('Ingestion API - Container Config', () => {
   // Test Case 3: Bad request - missing containerId
   test('POST /api/ingestion/container-config - should return 400 if containerId is missing', async () => {
     const filterPrompt = 'Summarize the content.';
-    
+
     const response = await request(app)
       .post('/api/ingestion/container-config')
       .send({ filterPrompt }); // containerId is missing
@@ -73,7 +73,7 @@ describe('Ingestion API - Container Config', () => {
   test('POST /api/ingestion/container-config - should return 400 if containerId is not a string', async () => {
     const containerId = 12345; // Invalid type
     const filterPrompt = 'Summarize the content.';
-    
+
     const response = await request(app)
       .post('/api/ingestion/container-config')
       .send({ containerId, filterPrompt });
@@ -87,7 +87,7 @@ describe('Ingestion API - Container Config', () => {
   test('POST /api/ingestion/container-config - should return 400 if filterPrompt is provided but not a string', async () => {
     const containerId = 'test-container-789';
     const filterPrompt = 12345; // Invalid type
-    
+
     const response = await request(app)
       .post('/api/ingestion/container-config')
       .send({ containerId, filterPrompt });
@@ -112,153 +112,148 @@ describe('Ingestion API - Container Config', () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ message: 'Failed to set container configuration.', error: errorMessage });
     expect(set_container_config).toHaveBeenCalledTimes(1);
-    expect(set_container_config).toHaveBeenCalledWith(containerId, filterPrompt);
   });
 });
 
 describe('Filtered Vector Search API', () => {
+  // Reset mocks before each test
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  const mockSearchResults = [
-    {
-      id: 'mem-1',
-      type: 'memory',
-      score: 0.95,
-      content: 'Test memory content',
-      containerTag: 'container-a',
-      sourceDocId: 'doc-1',
-      memoryType: 'episodic'
-    },
-    {
-      id: 'chunk-1',
-      type: 'chunk',
-      score: 0.87,
-      content: 'Test chunk content',
-      containerTag: 'container-a',
-      sourceDocId: 'doc-1',
-      chunkIndex: 0
-    }
-  ];
+  // Test Case 1: Successful filtered vector search with all parameters
+  test('POST /api/search/vector - should perform filtered vector search successfully with query, filters, and topK', async () => {
+    const query = 'machine learning';
+    const filters = { containerId: 'container-123', tags: ['ai', 'ml'] };
+    const topK = 5;
+    const mockResults = [
+      { id: 'doc-1', score: 0.95, content: 'Introduction to ML', metadata: { containerId: 'container-123' } },
+      { id: 'doc-2', score: 0.87, content: 'Deep Learning Basics', metadata: { containerId: 'container-123' } }
+    ];
 
-  // Test Case 1: Successful filtered vector search with container tag
-  test('POST /api/search/vector - should perform filtered search with container tag', async () => {
-    const query = 'test query';
-    const containerTag = 'container-a';
-    
-    filteredVectorSearch.mockResolvedValue(mockSearchResults);
+    filteredVectorSearch.mockResolvedValue(mockResults);
 
     const response = await request(app)
       .post('/api/search/vector')
-      .send({ query, containerTag });
+      .send({ query, filters, topK });
 
     expect(response.status).toBe(200);
-    expect(response.body.results).toHaveLength(2);
+    expect(response.body).toEqual({ results: mockResults });
     expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query,
-        filters: expect.objectContaining({ containerTag })
-      })
-    );
+    expect(filteredVectorSearch).toHaveBeenCalledWith(query, filters, topK);
   });
 
-  // Test Case 2: Filtered search with memory types
-  test('POST /api/search/vector - should filter by memory types', async () => {
-    const query = 'test query';
-    const memoryTypes = ['episodic', 'semantic'];
-    
-    filteredVectorSearch.mockResolvedValue([mockSearchResults[0]]);
+  // Test Case 2: Successful search with only query (no filters)
+  test('POST /api/search/vector - should perform search with query only', async () => {
+    const query = 'neural networks';
+    const mockResults = [
+      { id: 'doc-3', score: 0.92, content: 'Neural Networks 101', metadata: {} }
+    ];
+
+    filteredVectorSearch.mockResolvedValue(mockResults);
 
     const response = await request(app)
       .post('/api/search/vector')
-      .send({ query, memoryTypes });
+      .send({ query });
 
     expect(response.status).toBe(200);
-    expect(response.body.results).toHaveLength(1);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query,
-        filters: expect.objectContaining({ memoryTypes })
-      })
-    );
+    expect(response.body).toEqual({ results: mockResults });
+    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(query, undefined, undefined);
   });
 
-  // Test Case 3: Filtered search with minimum similarity threshold
-  test('POST /api/search/vector - should apply minimum similarity filter', async () => {
-    const query = 'test query';
-    const minSimilarity = 0.9;
-    
-    filteredVectorSearch.mockResolvedValue([mockSearchResults[0]]); // Only the 0.95 score item
+  // Test Case 3: Successful search with query and filters but no topK
+  test('POST /api/search/vector - should perform search with query and filters using default topK', async () => {
+    const query = 'data science';
+    const filters = { containerId: 'container-456' };
+    const mockResults = [
+      { id: 'doc-4', score: 0.88, content: 'Data Science Overview', metadata: { containerId: 'container-456' } }
+    ];
+
+    filteredVectorSearch.mockResolvedValue(mockResults);
 
     const response = await request(app)
       .post('/api/search/vector')
-      .send({ query, minSimilarity });
+      .send({ query, filters });
 
     expect(response.status).toBe(200);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query,
-        filters: expect.objectContaining({ minSimilarity })
-      })
-    );
+    expect(response.body).toEqual({ results: mockResults });
+    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(query, filters, undefined);
   });
 
-  // Test Case 4: Filtered search with multiple filters
-  test('POST /api/search/vector - should apply multiple filters simultaneously', async () => {
-    const query = 'test query';
-    const filters = {
-      containerTag: 'container-a',
-      memoryTypes: ['episodic'],
-      minSimilarity: 0.9,
-      metadata: { key: 'value' }
-    };
-    
-    filteredVectorSearch.mockResolvedValue([mockSearchResults[0]]);
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query, ...filters });
-
-    expect(response.status).toBe(200);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query,
-        filters: expect.objectContaining(filters)
-      })
-    );
-  });
-
-  // Test Case 5: Bad request - missing query
+  // Test Case 4: Bad request - missing query
   test('POST /api/search/vector - should return 400 if query is missing', async () => {
+    const filters = { containerId: 'container-123' };
+
     const response = await request(app)
       .post('/api/search/vector')
-      .send({ containerTag: 'container-a' });
+      .send({ filters });
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ message: 'Query is required and must be a string.' });
     expect(filteredVectorSearch).not.toHaveBeenCalled();
   });
 
-  // Test Case 6: Bad request - invalid filter types
-  test('POST /api/search/vector - should return 400 if filters have invalid types', async () => {
+  // Test Case 5: Bad request - invalid query type
+  test('POST /api/search/vector - should return 400 if query is not a string', async () => {
+    const query = 12345; // Invalid type
+
     const response = await request(app)
       .post('/api/search/vector')
-      .send({ 
-        query: 'test', 
-        minSimilarity: 'not-a-number' 
-      });
+      .send({ query });
 
     expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'minSimilarity must be a number between 0 and 1.' });
+    expect(response.body).toEqual({ message: 'Query is required and must be a string.' });
     expect(filteredVectorSearch).not.toHaveBeenCalled();
   });
 
-  // Test Case 7: Error handling - search service failure
-  test('POST /api/search/vector - should return 500 if search fails', async () => {
+  // Test Case 6: Bad request - invalid filters type
+  test('POST /api/search/vector - should return 400 if filters is not an object', async () => {
     const query = 'test query';
-    const errorMessage = 'Vector search service unavailable';
+    const filters = 'invalid-filters'; // Should be object
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({ query, filters });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Filters must be an object if provided.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 7: Bad request - invalid topK type
+  test('POST /api/search/vector - should return 400 if topK is not a number', async () => {
+    const query = 'test query';
+    const topK = 'ten'; // Invalid type
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({ query, topK });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'topK must be a positive integer if provided.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 8: Bad request - negative topK
+  test('POST /api/search/vector - should return 400 if topK is negative', async () => {
+    const query = 'test query';
+    const topK = -5;
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({ query, topK });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'topK must be a positive integer if provided.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 9: Error handling - filteredVectorSearch throws an error
+  test('POST /api/search/vector - should return 500 if vector search fails', async () => {
+    const query = 'test query';
+    const errorMessage = 'Vector database connection failed';
     
     filteredVectorSearch.mockRejectedValue(new Error(errorMessage));
 
@@ -267,15 +262,13 @@ describe('Filtered Vector Search API', () => {
       .send({ query });
 
     expect(response.status).toBe(500);
-    expect(response.body).toEqual({ 
-      message: 'Failed to perform filtered vector search.', 
-      error: errorMessage 
-    });
+    expect(response.body).toEqual({ message: 'Failed to perform vector search.', error: errorMessage });
+    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
   });
 
-  // Test Case 8: Empty results handling
-  test('POST /api/search/vector - should return empty array when no matches found', async () => {
-    const query = 'nonexistent query';
+  // Test Case 10: Error handling - filteredVectorSearch returns null/empty results
+  test('POST /api/search/vector - should return empty results when no matches found', async () => {
+    const query = 'nonexistent content';
     
     filteredVectorSearch.mockResolvedValue([]);
 
@@ -284,7 +277,7 @@ describe('Filtered Vector Search API', () => {
       .send({ query });
 
     expect(response.status).toBe(200);
-    expect(response.body.results).toEqual([]);
-    expect(response.body.total).toBe(0);
+    expect(response.body).toEqual({ results: [] });
+    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
   });
 });

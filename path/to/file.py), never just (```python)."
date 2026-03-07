@@ -1,3 +1,1 @@
-So I must use `python:` followed by the path. The path is src/db/neo4j-client.ts.
-
- So the output should be:
+So I think I should output:

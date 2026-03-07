@@ -1,5 +1,4 @@
 """Service catalog API endpoints."""
-
 from __future__ import annotations
 
 from typing import Annotated
@@ -11,6 +10,7 @@ from app.schemas.service import (
     ClientServiceResponse,
     ClientServiceUpdate,
     ServiceResponse,
+    ServiceSearchRequest,
 )
 from app.services.service_catalog import ServiceCatalogService
 
@@ -30,6 +30,19 @@ async def get_services(
 ) -> list[ServiceResponse]:
     """Return all services in the catalog."""
     return await service_catalog.get_all_services()
+
+
+@router.post("/api/services/search", response_model=list[ServiceResponse])
+async def search_services(
+    search_request: ServiceSearchRequest,
+    service_catalog: Annotated[ServiceCatalogService, Depends(get_service_catalog)],
+) -> list[ServiceResponse]:
+    """Search services using filtered vector search."""
+    return await service_catalog.search_services(
+        query=search_request.query,
+        status=search_request.status,
+        limit=search_request.limit,
+    )
 
 
 @router.post(

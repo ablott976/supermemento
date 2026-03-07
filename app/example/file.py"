@@ -1,0 +1,5 @@
+So I should use .py extensions in the output, even if the target files were listed as .ts. Or should I use the exact paths provided?
+
+The user said: "Target Files src/db/neo4j-client.ts, src/services/search/index.ts, src/services/search/search-service.ts, src/services/search/types.ts"
+
+But then said: "Format:
