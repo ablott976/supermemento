@@ -15,7 +15,6 @@ from app.schemas.service import (
 from app.services.service_catalog import ServiceCatalogService
 
 router = APIRouter()
-
 _service_catalog = ServiceCatalogService()
 
 
@@ -59,6 +58,18 @@ async def assign_service_to_client(
         return await service_catalog.assign_service_to_client(id, service_assignment)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get(
+    "/api/clients/{id}/services",
+    response_model=list[ClientServiceResponse],
+)
+async def get_client_services(
+    id: str,
+    service_catalog: Annotated[ServiceCatalogService, Depends(get_service_catalog)],
+) -> list[ClientServiceResponse]:
+    """Return all services assigned to a client."""
+    return await service_catalog.get_client_services(id)
 
 
 @router.put(
