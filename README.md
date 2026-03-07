@@ -64,16 +64,31 @@ Create your local environment file from the example:
 cp .env.example .env
 ```
 
-Required variables:
-- `NEO4J_URI`
-- `NEO4J_USER`
-- `NEO4J_PASSWORD`
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
+Then update `.env` with values for your setup:
 
-Optional variables:
-- `ANTHROPIC_MODEL` (default: `claude-haiku-4-5-20251001`)
-- `OPENAI_EMBEDDING_MODEL` (default: `text-embedding-3-large`)
+```env
+# Use localhost when running the server from your host machine with `npm run dev`
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=supermemento
+
+# Add your provider keys
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+
+# Optional overrides
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+```
+
+Variable reference:
+- `NEO4J_URI` Neo4j Bolt endpoint (`bolt://localhost:7687` for local dev, `bolt://neo4j:7687` inside Docker network)
+- `NEO4J_USER` Neo4j username
+- `NEO4J_PASSWORD` Neo4j password (must match Docker Compose `NEO4J_AUTH`)
+- `OPENAI_API_KEY` required for embeddings and OpenAI-powered flows
+- `ANTHROPIC_API_KEY` required for relation classification/extraction flows
+- `ANTHROPIC_MODEL` optional model override (default: `claude-haiku-4-5-20251001`)
+- `OPENAI_EMBEDDING_MODEL` optional embedding model override (default: `text-embedding-3-large`)
 
 ### 3. Start Neo4j
 
