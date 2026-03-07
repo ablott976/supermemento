@@ -132,7 +132,10 @@ export class IngestionPipeline {
         })
         .filter((input): input is NonNullable<typeof input> => input !== null);
 
-      const memoryIds = await batchCreateMemories(this.neo4jClient, memoryInputs);
+      let memoryIds: string[] = [];
+      if (memoryInputs.length > 0) {
+        memoryIds = await batchCreateMemories(this.neo4jClient, memoryInputs);
+      }
       const createdMemoryCount = memoryIds.length;
 
       if (memoryIds.length > 0) {
