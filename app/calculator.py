@@ -1,70 +1,34 @@
 """Calculator module with basic arithmetic operations."""
 
 
-class CalculatorError(Exception):
-    """Base exception for calculator errors."""
+class Calculator:
+    """Simple calculator class."""
 
-    pass
+    def add(self, a: float, b: float) -> float:
+        """Add two numbers.
 
+        Args:
+            a: First number
+            b: Second number
 
-class DivisionByZeroError(CalculatorError):
-    """Raised when attempting to divide by zero."""
+        Returns:
+            Sum of a and b
+        """
+        return a + b
 
-    pass
+    def divide(self, a: float, b: float) -> float:
+        """Divide two numbers.
 
+        Args:
+            a: Dividend
+            b: Divisor
 
-def add(a: int | float, b: int | float) -> int | float:
-    """Add two numbers.
+        Returns:
+            Quotient of a and b
 
-    Args:
-        a: First number
-        b: Second number
-
-    Returns:
-        Sum of a and b
-    """
-    return a + b
-
-
-def subtract(a: int | float, b: int | float) -> int | float:
-    """Subtract b from a.
-
-    Args:
-        a: First number
-        b: Second number
-
-    Returns:
-        Difference of a and b
-    """
-    return a - b
-
-
-def multiply(a: int | float, b: int | float) -> int | float:
-    """Multiply two numbers.
-
-    Args:
-        a: First number
-        b: Second number
-
-    Returns:
-        Product of a and b
-    """
-    return a * b
-
-
-def divide(a: int | float, b: int | float) -> int | float:
-    """Divide a by b.
-
-    Args:
-        a: Dividend
-        b: Divisor
-
-    Returns:
-        Quotient of a and b
-
-    Raises:
-        DivisionByZeroError: If b is zero
-    """
-    if b == 0:
-        raise DivisionByZeroError("Cannot divide by zero")
-    return a / b
+        Raises:
+            ValueError: If b is zero
+        """
+        if b == 0:
+            raise ValueError("Cannot divide by zero")
+        return a / b

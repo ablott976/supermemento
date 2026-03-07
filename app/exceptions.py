@@ -28,3 +28,21 @@ class TaskValidationError(TaskError):
     def __init__(self, message: str, field: str | None = None) -> None:
         super().__init__(message)
         self.field = field
+
+
+class ProcessingError(Exception):
+    """Raised when processing fails."""
+
+    pass
+
+
+class CalculatorError(Exception):
+    """Base exception for calculator errors."""
+
+    pass
+
+
+class DivisionByZeroError(CalculatorError):
+    """Raised when attempting to divide by zero."""
+
+    pass
