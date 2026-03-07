@@ -185,6 +185,82 @@ test("batchCreateMemories propagates close errors after a successful query", asy
   );
 });
 
+test("batchCreateMemories stamps all rows with one timestamp and defaults validity windows to null", async () => {
+  let capturedParams: Record<string, unknown> | null = null;
+
+  const session = {
+    run: async (_query: string, params: Record<string, unknown>) => {
+      capturedParams = params;
+      return {
+        records: [
+          { get: () => "memory-1" },
+          { get: () => "memory-2" },
+          { get: () => "memory-3" },
+        ],
+      };
+    },
+    close: async () => undefined,
+  };
+
+  const neo4jClient = {
+    getDriver: () => ({
+      session: () => session,
+    }),
+  };
+
+  const memories: MemoryBatchInput[] = [
+    {
+      content: "m1",
+      memoryType: MemoryType.Fact,
+      containerTag: "inbox",
+      confidence: 0.8,
+      embedding: [0.1],
+      sourceDocId: "doc-1",
+    },
+    {
+      content: "m2",
+      memoryType: MemoryType.Preference,
+      containerTag: "inbox",
+      confidence: 0.81,
+      embedding: [0.2],
+      sourceDocId: "doc-1",
+      validFrom: undefined,
+      validTo: undefined,
+    },
+    {
+      content: "m3",
+      memoryType: MemoryType.Episode,
+      containerTag: "inbox",
+      confidence: 0.82,
+      embedding: [0.3],
+      sourceDocId: "doc-1",
+      validFrom: null,
+      validTo: null,
+    },
+  ];
+
+  await batchCreateMemories(neo4jClient as never, memories);
+
+  assert.ok(capturedParams);
+  const rows = capturedParams.memories as Array<Record<string, unknown>>;
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.map((row) => row.validFrom),
+    [null, null, null]
+  );
+  assert.deepEqual(
+    rows.map((row) => row.validTo),
+    [null, null, null]
+  );
+
+  const createdAtValues = new Set(rows.map((row) => row.createdAt));
+  const updatedAtValues = new Set(rows.map((row) => row.updatedAt));
+  assert.equal(createdAtValues.size, 1);
+  assert.equal(updatedAtValues.size, 1);
+  assert.match(String(rows[0].createdAt), /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(rows[0].createdAt, rows[0].updatedAt);
+});
+
 test("parallelExtractMemories returns [] and does not call extractor when chunks are empty", async () => {
   let callCount = 0;
   const memoryExtractorService = {
