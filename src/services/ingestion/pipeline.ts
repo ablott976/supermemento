@@ -1,12 +1,12 @@
 import { Neo4jClient } from "../../db/neo4j-client.js";
 import { ContentType, DocumentStatus } from "../../types/enums.js";
-import type { Document, Metadata } from "../../types/models.js";
+import type { Document, Memory, Metadata } from "../../types/models.js";
 import { EmbeddingService } from "../embedding.js";
 import { RelationClassifierService } from "../relation-classifier.js";
 import { ChunkingService, type ChunkPayload } from "./chunker.js";
 import { MemoryExtractorService, type ExtractedMemory } from "./memory-extractor.js";
 import { ConversationExtractor, TextExtractor, UrlExtractor, type Extractor } from "./extractors/index.js";
-import { batchCreateMemories, gatherWithLimit } from "./batching.js";
+import { batchCreateMemories, gatherWithLimit, parallelExtractMemories } from "./batching.js";
 
 export type PipelineInput = {
   title: string;
@@ -115,7 +115,6 @@ export class IngestionPipeline {
         );
       }
 
-      // Prepare batch inputs for memory creation
       const memoryInputs = extractedMemories
         .map((extractedMemory, i) => {
           const embedding = memoryEmbeddings[i];
@@ -125,7 +124,7 @@ export class IngestionPipeline {
             memoryType: extractedMemory.memoryType,
             containerTag: document.containerTag,
             confidence: extractedMemory.confidence,
-            embedding: embedding,
+            embedding,
             sourceDocId: document.id,
             validFrom: extractedMemory.validFrom ?? null,
             validTo: extractedMemory.validTo ?? null,
@@ -133,13 +132,94 @@ export class IngestionPipeline {
         })
         .filter((input): input is NonNullable<typeof input> => input !== null);
 
-      // Batch create memories using UNWIND for optimal performance
       const memoryIds = await batchCreateMemories(this.neo4jClient, memoryInputs);
 
-      // Parallelize relation classification with concurrency limit
       if (memoryIds.length > 0) {
         const now = new Date().toISOString();
-        const createdMemories = memoryIds.map((id, index) => ({
-          id,
-          ...memoryInputs[index],
-          isLatest: true,
+        const createdMemories = memoryIds
+          .map((id, index) => {
+            const input = memoryInputs[index];
+            if (!input) return null;
+            return {
+              id,
+              ...input,
+              isLatest: true,
+              createdAt: now,
+            } as Memory;
+          })
+          .filter((memory): memory is Memory => memory !== null);
+
+        await gatherWithLimit(
+          createdMemories,
+          async (memory) => {
+            try {
+              await this.relationClassifierService.classifyAndApply(memory);
+            } catch (e) {
+              console.warn(`[pipeline] RelationClassifier skipped for memory ${memory.id}:`, (e as Error).message);
+            }
+          },
+          5
+        );
+      }
+
+      const finalDocument = await this.neo4jClient.updateDocument(document.id, {
+        status: DocumentStatus.Done,
+        rawContent: extractedText,
+      });
+
+      if (!finalDocument && !extractedDoc) {
+        throw new Error(`Failed to update final status for document ${document.id}`);
+      }
+
+      return {
+        document: finalDocument ?? extractedDoc ?? document,
+        chunkCount: chunks.length,
+        memoryCount: extractedMemories.length,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown pipeline error";
+      const metaStr = JSON.stringify({
+        pipelineError: message,
+        pipelineErrorAt: new Date().toISOString(),
+      });
+
+      await this.neo4jClient.updateDocument(document.id, {
+        status: DocumentStatus.Error,
+        metadata: metaStr,
+      });
+      throw error;
+    }
+  }
+
+  private async extractMemories(
+    chunks: ChunkPayload[],
+    filterPrompt: string | null
+  ): Promise<ExtractedMemory[]> {
+    return parallelExtractMemories(chunks, this.memoryExtractorService, filterPrompt);
+  }
+
+  private getExtractor(contentType: ContentType): Extractor {
+    if (contentType === ContentType.Url) {
+      return new UrlExtractor();
+    }
+
+    if (contentType === ContentType.Conversation) {
+      return new ConversationExtractor();
+    }
+
+    return new TextExtractor();
+  }
+
+  private async setStatus(documentId: string, status: DocumentStatus): Promise<void> {
+    await this.neo4jClient.updateDocument(documentId, { status });
+  }
+
+  /**
+   * Sets the configuration for a container, including filter prompts.
+   * @param containerTag The tag of the container.
+   * @param config The configuration object.
+   */
+  public async set_container_config(containerTag: string, config: { filterPrompt?: string | null }): Promise<void> {
+    await this.neo4jClient.setContainerConfig(containerTag, config.filterPrompt);
+  }
+}
