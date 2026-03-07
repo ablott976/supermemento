@@ -57,18 +57,6 @@ export class WebCrawlerConnector extends BaseConnector {
   }
 
   /**
-   * Crawls every configured URL and ingests only changed content.
-   */
-  public async crawl(): Promise<{
-    crawled: number;
-    ingested: number;
-    skipped: number;
-    results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }>;
-  }> {
-    return this.crawlUrls(this.urls, this.containerTag);
-  }
-
-  /**
    * Crawls one URL and ingests if changed.
    * @param url URL to crawl.
    * @param containerTag Target container.
@@ -112,7 +100,6 @@ export class WebCrawlerConnector extends BaseConnector {
     // Process URLs in chunks to limit concurrency while using Promise.all for parallel processing within each chunk
     for (let i = 0; i < urls.length; i += concurrencyLimit) {
       const chunk = urls.slice(i, i + concurrencyLimit);
-      
       const chunkPromises = chunk.map(async (url): Promise<{ url: string; status: "ingested" | "skipped"; documentId?: string }> => {
         const content = await extractor.extract({
           id: "temp",
@@ -168,10 +155,10 @@ export class WebCrawlerConnector extends BaseConnector {
     }
 
     const ingested = results.filter((item) => item.status === "ingested").length;
-    const skipped = results.length - ingested;
+    const skipped = results.filter((item) => item.status === "skipped").length;
 
     return {
-      crawled: results.length,
+      crawled: urls.length,
       ingested,
       skipped,
       results
