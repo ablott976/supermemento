@@ -1,271 +1,9 @@
-/**
- * Batching utilities for ingestion pipeline.
- * Provides concurrency-limited parallel execution and batch database operations to optimize N+1 query patterns.
- */
-
-import { v4 as uuidv4 } from "uuid";
-import type { Neo4jClient } from "../../db/neo4j-client.js";
-import type { MemoryType } from "../../types/enums.js";
-import type { ChunkPayload } from "./chunker.js";
-import type { ExtractedMemory, MemoryExtractorService } from "./memory-extractor.js";
-
-/**
- * Input type for batch memory creation.
- */
-export interface MemoryBatchInput {
-  content: string;
-  memoryType: MemoryType;
-  containerTag: string;
-  confidence: number;
-  embedding: number[];
-  sourceDocId: string;
-  validFrom?: string | null;
-  validTo?: string | null;
-}
-
-/**
- * Simple semaphore for concurrency control.
- */
-class Semaphore {
-  private permits: number;
-  private resolvers: Array<() => void> = [];
-
-  constructor(permits: number) {
-    this.permits = permits;
-  }
-
-  async acquire(): Promise<void> {
-    if (this.permits > 0) {
-      this.permits--;
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => {
-      this.resolvers.push(resolve);
-    });
-  }
-
-  release(): void {
-    if (this.resolvers.length > 0) {
-      const resolve = this.resolvers.shift();
-      if (resolve) {
-        resolve();
-      }
-    } else {
-      this.permits++;
-    }
-  }
-}
-
-/**
- * Execute async function over items with limited concurrency.
- * Replaces sequential loops (for...await) with parallel execution while respecting resource constraints.
- *
- * @param items Items to process
- * @param asyncFunc Async function to apply to each item
- * @param maxConcurrency Maximum number of concurrent operations
- * @returns List of results in the same order as input items
- */
-export async function gatherWithLimit<T, R>(
-  items: readonly T[],
-  asyncFunc: (item: T) => Promise<R>,
-  maxConcurrency: number = 10
-): Promise<R[]> {
-  const semaphore = new Semaphore(maxConcurrency);
-
-  async function wrap(item: T): Promise<R> {
-    await semaphore.acquire();
-    try {
-      return await asyncFunc(item);
-    } finally {
-      semaphore.release();
-    }
-  }
-
-  return Promise.all(items.map(wrap));
-}
-
-/**
- * Split sequence into chunks of specified size.
- *
- * @param items Items to chunk
- * @param chunkSize Maximum size of each chunk
- * @returns List of chunks
- */
-export function chunkList<T>(items: readonly T[], chunkSize: number): T[][] {
-  if (items.length === 0) {
-    return [];
-  }
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += chunkSize) {
-    chunks.push(items.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
-
-/**
- * Process items in batches.
- * Useful for database batch operations (e.g., Neo4j UNWIND).
- *
- * @param items Items to process
- * @param batchProcessor Async function that processes a batch of items
- * @param batchSize Size of each batch
- * @returns List of results from each batch
- */
-export async function processBatches<T, R>(
-  items: readonly T[],
-  batchProcessor: (batch: readonly T[]) => Promise<R>,
-  batchSize: number = 100
-): Promise<R[]> {
-  const batches = chunkList(items, batchSize);
-  return Promise.all(batches.map((batch) => batchProcessor(batch)));
-}
-
-/**
- * Extract memories from chunks in parallel with a configurable concurrency limit.
- * Flattens per-chunk extraction results into a single memory list.
- *
- * @param chunks Chunk payloads to extract from
- * @param memoryExtractorService Memory extractor service instance
- * @param filterPrompt Optional filter prompt
- * @param maxConcurrency Maximum number of concurrent extraction calls
- * @returns Flat list of extracted memories
- */
-export async function parallelExtractMemories(
-  chunks: readonly ChunkPayload[],
-  memoryExtractorService: MemoryExtractorService,
-  filterPrompt?: string | null,
-  maxConcurrency: number = 5
-): Promise<ExtractedMemory[]> {
-  if (chunks.length === 0) {
-    return [];
-  }
-
-  const extractedPerChunk = await gatherWithLimit(
-    chunks,
-    async (chunk) =>
-      memoryExtractorService.extractFromChunk(chunk.content, {
-        filterPrompt: filterPrompt ?? null
-      }),
-    maxConcurrency
-  );
-
-  return extractedPerChunk.flat();
-}
-
-/**
- * Batch create memories using Neo4j UNWIND for optimal performance.
- * Creates multiple Memory nodes and their relationships to source documents in a single query.
- *
- * @param neo4jClient Neo4j client instance
- * @param memories Array of memory data to create
- * @returns Array of created memory IDs
- */
-export async function batchCreateMemories(
-  neo4jClient: Neo4jClient,
-  memories: readonly MemoryBatchInput[]
-): Promise<string[]> {
-  if (memories.length === 0) {
-    return [];
-  }
-
-  const driver = neo4jClient.getDriver();
-  const session = driver.session();
-  const now = new Date().toISOString();
-
-  // Prepare data with generated IDs and timestamps
-  const memoriesWithIds = memories.map((memory, index) => ({
-    idx: index,
-    id: uuidv4(),
-    content: memory.content,
-    memoryType: memory.memoryType,
-    containerTag: memory.containerTag,
-    confidence: memory.confidence,
-    embedding: memory.embedding,
-    sourceDocId: memory.sourceDocId,
-    validFrom: memory.validFrom ?? null,
-    validTo: memory.validTo ?? null,
-    createdAt: now,
-    updatedAt: now
-  }));
-
-  try {
-    const result = await session.run(
-      `
-      UNWIND $memories as memory
-      MATCH (d:Document {id: memory.sourceDocId})
-      CREATE (m:Memory {
-        id: memory.id,
-        content: memory.content,
-        memoryType: memory.memoryType,
-        containerTag: memory.containerTag,
-        confidence: memory.confidence,
-        embedding: memory.embedding,
-        validFrom: CASE WHEN memory.validFrom IS NULL THEN NULL ELSE datetime(memory.validFrom) END,
-        validTo: CASE WHEN memory.validTo IS NULL THEN NULL ELSE datetime(memory.validTo) END,
-        isLatest: true,
-        createdAt: datetime(memory.createdAt),
-        updatedAt: datetime(memory.updatedAt)
-      })
-      CREATE (m)-[:EXTRACTED_FROM]->(d)
-      RETURN memory.idx as idx, m.id as id
-      ORDER BY idx ASC
-      `,
-      { memories: memoriesWithIds }
-    );
-
-    return result.records.map((record) => record.get("id") as string);
-  } finally {
-    await session.close();
-  }
-}
-
-/**
- * Classify memory relations in batches to reduce LLM round-trips.
- * Each batch should be handled by a classifier implementation that performs
- * one multi-memory classification call.
- *
- * @param memories Memories to classify
- * @param batchClassifier Classifier function invoked once per batch
- * @param batchSize Number of memories per classification batch
- * @param maxConcurrency Maximum number of batches processed in parallel
- * @returns Flattened list of per-memory classification results
- */
-export async function batchClassifyRelations<TMemory, TResult>(
-  memories: readonly TMemory[],
-  batchClassifier: (batch: readonly TMemory[]) => Promise<readonly TResult[]>,
-  batchSize: number = 10,
-  maxConcurrency: number = 3
-): Promise<TResult[]> {
-  if (!Number.isInteger(batchSize) || batchSize <= 0) {
-    throw new Error("batchSize must be a positive integer");
-  }
-
-  if (!Number.isInteger(maxConcurrency) || maxConcurrency <= 0) {
-    throw new Error("maxConcurrency must be a positive integer");
-  }
-
-  if (memories.length === 0) {
-    return [];
-  }
-
-  const batches = chunkList(memories, batchSize);
-  const resultsPerBatch = await gatherWithLimit(
-    batches,
-    async (batch) => batchClassifier(batch),
-    maxConcurrency
-  );
-
-  return resultsPerBatch.flatMap((batch) => [...batch]);
-}
-
-export type BatchOptions = {
-  concurrency?: number;
-};
+export type AsyncMapper<TInput, TOutput> = (item: TInput, index: number) => Promise<TOutput>;
 
 /**
  * Splits an array into fixed-size batches.
  */
-export function chunkIntoBatches<T>(items: T[], batchSize: number): T[][] {
+export function chunkIntoBatches<T>(items: readonly T[], batchSize: number): T[][] {
   if (!Number.isInteger(batchSize) || batchSize <= 0) {
     throw new Error("batchSize must be a positive integer");
   }
@@ -274,19 +12,18 @@ export function chunkIntoBatches<T>(items: T[], batchSize: number): T[][] {
   for (let i = 0; i < items.length; i += batchSize) {
     batches.push(items.slice(i, i + batchSize));
   }
+
   return batches;
 }
 
 /**
- * Maps an array concurrently while preserving input order.
+ * Maps items with an async mapper while enforcing a max concurrency.
  */
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  mapper: (item: T, index: number) => Promise<R>,
-  options: BatchOptions = {}
-): Promise<R[]> {
-  const concurrency = options.concurrency ?? 5;
-
+export async function mapWithConcurrency<TInput, TOutput>(
+  items: readonly TInput[],
+  mapper: AsyncMapper<TInput, TOutput>,
+  concurrency: number
+): Promise<TOutput[]> {
   if (!Number.isInteger(concurrency) || concurrency <= 0) {
     throw new Error("concurrency must be a positive integer");
   }
@@ -295,20 +32,20 @@ export async function mapWithConcurrency<T, R>(
     return [];
   }
 
-  const results = new Array<R>(items.length);
+  const results = new Array<TOutput>(items.length);
   let nextIndex = 0;
 
   const worker = async (): Promise<void> => {
-    while (true) {
-      const current = nextIndex;
+    while (nextIndex < items.length) {
+      const index = nextIndex;
       nextIndex += 1;
 
-      if (current >= items.length) {
-        return;
+      const item = items[index];
+      if (item === undefined) {
+        continue;
       }
 
-      // Preserve result ordering based on source index.
-      results[current] = await mapper(items[current] as T, current);
+      results[index] = await mapper(item, index);
     }
   };
 
@@ -316,4 +53,25 @@ export async function mapWithConcurrency<T, R>(
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   return results;
+}
+
+/**
+ * Runs batch operations in sequence while each batch executes in parallel.
+ */
+export async function mapInBatches<TInput, TOutput>(
+  items: readonly TInput[],
+  mapper: AsyncMapper<TInput, TOutput>,
+  batchSize: number
+): Promise<TOutput[]> {
+  const batches = chunkIntoBatches(items, batchSize);
+  const output: TOutput[] = [];
+
+  let offset = 0;
+  for (const batch of batches) {
+    const mapped = await Promise.all(batch.map((item, index) => mapper(item, offset + index)));
+    output.push(...mapped);
+    offset += batch.length;
+  }
+
+  return output;
 }
