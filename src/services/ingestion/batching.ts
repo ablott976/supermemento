@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from "uuid";
 
 import type { Neo4jClient } from "../../db/neo4j-client.js";
 import type { MemoryType } from "../../types/enums.js";
+import type { ChunkPayload } from "./chunker.js";
+import type { ExtractedMemory, MemoryExtractorService } from "./memory-extractor.js";
 
 export type AsyncMapper<TInput, TOutput> = (item: TInput, index: number) => Promise<TOutput>;
 export type MemoryBatchInput = {
@@ -152,4 +154,22 @@ export async function batchCreateMemories(
   } finally {
     await session.close();
   }
+}
+
+/**
+ * Extracts memories from chunks concurrently and preserves chunk order.
+ */
+export async function parallelExtractMemories(
+  chunks: readonly ChunkPayload[],
+  memoryExtractorService: MemoryExtractorService,
+  filterPrompt?: string | null,
+  maxConcurrency = 5
+): Promise<ExtractedMemory[]> {
+  const extractedByChunk = await mapWithConcurrency(
+    chunks,
+    async (chunk) => memoryExtractorService.extractFromChunk(chunk.content, { filterPrompt: filterPrompt ?? null }),
+    maxConcurrency
+  );
+
+  return extractedByChunk.flat();
 }
