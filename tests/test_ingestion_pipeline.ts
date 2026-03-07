@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { batchCreateMemories, type MemoryBatchInput } from "../src/services/ingestion/batching.js";
+import {
+  batchCreateMemories,
+  parallelExtractMemories,
+  type MemoryBatchInput,
+} from "../src/services/ingestion/batching.js";
 import { MemoryType } from "../src/types/enums.js";
+import type { ChunkPayload } from "../src/services/ingestion/chunker.js";
+import type { ExtractedMemory } from "../src/services/ingestion/memory-extractor.js";
 
 type FakeRecord = { get: (key: string) => unknown };
 
@@ -137,4 +143,104 @@ test("batchCreateMemories closes the session when the query fails", async () => 
   );
 
   assert.equal(closeCalled, 1);
+});
+
+test("parallelExtractMemories returns [] and does not call extractor when chunks are empty", async () => {
+  let callCount = 0;
+  const memoryExtractorService = {
+    extractFromChunk: async () => {
+      callCount += 1;
+      return [] as ExtractedMemory[];
+    },
+  };
+
+  const result = await parallelExtractMemories([], memoryExtractorService as never, "filter", 3);
+
+  assert.deepEqual(result, []);
+  assert.equal(callCount, 0);
+});
+
+test("parallelExtractMemories flattens results in chunk order and passes filterPrompt", async () => {
+  const chunks: ChunkPayload[] = [
+    { content: "chunk-a", chunkIndex: 0, metadata: {} },
+    { content: "chunk-b", chunkIndex: 1, metadata: {} },
+    { content: "chunk-c", chunkIndex: 2, metadata: {} },
+  ];
+
+  const calls: Array<{ chunkText: string; filterPrompt: string | null | undefined }> = [];
+  const memoryExtractorService = {
+    extractFromChunk: async (
+      chunkText: string,
+      options?: { filterPrompt?: string | null }
+    ): Promise<ExtractedMemory[]> => {
+      calls.push({ chunkText, filterPrompt: options?.filterPrompt });
+      if (chunkText === "chunk-a") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return [
+          {
+            content: "a-1",
+            memoryType: MemoryType.Fact,
+            confidence: 0.9,
+            validFrom: null,
+            validTo: null,
+          },
+        ];
+      }
+      if (chunkText === "chunk-b") {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return [
+          {
+            content: "b-1",
+            memoryType: MemoryType.Preference,
+            confidence: 0.8,
+            validFrom: null,
+            validTo: null,
+          },
+          {
+            content: "b-2",
+            memoryType: MemoryType.Episode,
+            confidence: 0.7,
+            validFrom: null,
+            validTo: null,
+          },
+        ];
+      }
+      return [];
+    },
+  };
+
+  const result = await parallelExtractMemories(chunks, memoryExtractorService as never, "only food", 3);
+
+  assert.deepEqual(
+    result.map((memory) => memory.content),
+    ["a-1", "b-1", "b-2"]
+  );
+  assert.deepEqual(
+    calls.map((call) => call.filterPrompt),
+    ["only food", "only food", "only food"]
+  );
+});
+
+test("parallelExtractMemories respects maxConcurrency", async () => {
+  const chunks: ChunkPayload[] = Array.from({ length: 6 }, (_, index) => ({
+    content: `chunk-${index}`,
+    chunkIndex: index,
+    metadata: {},
+  }));
+
+  let active = 0;
+  let maxActive = 0;
+  const memoryExtractorService = {
+    extractFromChunk: async (): Promise<ExtractedMemory[]> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      active -= 1;
+      return [];
+    },
+  };
+
+  await parallelExtractMemories(chunks, memoryExtractorService as never, null, 2);
+
+  assert.equal(maxActive, 2);
 });
