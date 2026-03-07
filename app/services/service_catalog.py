@@ -1,4 +1,5 @@
 """Service catalog management logic."""
+
 from __future__ import annotations
 
 import uuid
@@ -51,15 +52,14 @@ class ServiceCatalogService:
         limit: int = 10,
     ) -> list[ServiceResponse]:
         """Search services using filtered vector search.
-        
-        Performs vector similarity search on service embeddings with optional
-        metadata filtering by status.
-        
+
+        Performs vector similarity search on service embeddings with optional metadata filtering by status.
+
         Args:
             query: Search query text to vectorize and match
             status: Optional status filter to apply
             limit: Maximum number of results to return
-            
+
         Returns:
             List of services matching the query and filters
         """
@@ -67,12 +67,11 @@ class ServiceCatalogService:
         candidates = self._services.values()
         if status is not None:
             candidates = [s for s in candidates if s.status == status]
-        
+
         # Perform vector similarity search (simulated with text matching for in-memory)
         # In production, this would use actual vector embeddings and similarity search
         query_lower = query.lower()
         results = []
-        
         for service in candidates:
             # Simple text similarity as stand-in for vector similarity
             # In real implementation, this would compare embeddings
@@ -80,7 +79,6 @@ class ServiceCatalogService:
                 results.append(service)
             if len(results) >= limit:
                 break
-                
         return results
 
     async def get_client_services(self, client_id: str) -> list[ClientServiceResponse]:
@@ -137,7 +135,7 @@ class ServiceCatalogService:
         client_id: str,
         service_id: str,
     ) -> ClientServiceResponse:
-        """Delete an assigned service for a client."""
+        """Delete a service assignment for a client."""
         if client_id not in self._client_services:
             raise ValueError(f"Client {client_id} not found")
         if service_id not in self._client_services[client_id]:

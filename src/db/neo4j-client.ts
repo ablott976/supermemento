@@ -37,10 +37,8 @@ class Neo4jClient:
     ) -> List[VectorSearchResult]:
         """
         Perform vector similarity search with optional metadata filters.
-        
-        Uses Neo4j vector index (db.index.vector.queryNodes) with additional
-        filtering applied to results. Falls back to brute-force cosine similarity
-        if vector index is not available.
+        Uses Neo4j vector index (db.index.vector.queryNodes) with additional filtering applied to results.
+        Falls back to brute-force cosine similarity if vector index is not available.
         
         Args:
             query_embedding: The vector embedding to search against
@@ -119,74 +117,94 @@ class Neo4jClient:
         if where_clauses:
             filter_clause = "WHERE " + " AND ".join(where_clauses)
         
-        # Primary query using vector index
-        query = f"""
-        CALL db.index.vector.queryNodes($index_name, $top_k, $embedding)
-        YIELD node AS c, score
-        {filter_clause}
-        RETURN c {{
-            .*, 
-            embedding: null
-        }} AS node, score
-        ORDER BY score DESC
-        LIMIT $top_k
-        """
-        
-        try:
-            results = await self._execute_search_query(query, params)
-            if results:
-                return results
-        except Exception as e:
-            # Log error and fall through to fallback
-            print(f"Vector index search failed, falling back: {e}")
-        
-        # Fallback: Brute force cosine similarity with filtering
-        fallback_query = f"""
-        MATCH (c:Chunk)
-        {filter_clause}
-        WITH c, 
-             CASE 
-                WHEN c.embedding IS NOT NULL 
-                THEN vector.similarity.cosine(c.embedding, $embedding) 
-                ELSE null 
-             END AS score
-        WHERE score IS NOT NULL
-        ORDER BY score DESC
-        LIMIT $top_k
-        RETURN c {{
-            .*,
-            embedding: null
-        }} AS node, score
-        """
-        
-        return await self._execute_search_query(fallback_query, params)
+        # If filters are present, use brute force to ensure accurate filtering
+        # Otherwise use vector index for better performance
+        if filters:
+            return await self._brute_force_search(query_embedding, top_k, filter_clause, params)
+        else:
+            return await self._vector_index_search(query_embedding, top_k, idx_name, params)
     
-    async def _execute_search_query(
-        self, 
-        query: str, 
+    async def _vector_index_search(
+        self,
+        query_embedding: List[float],
+        top_k: int,
+        index_name: str,
         params: Dict[str, Any]
     ) -> List[VectorSearchResult]:
         """
-        Execute Cypher query and format results.
-        
-        Args:
-            query: Cypher query string
-            params: Query parameters
-            
-        Returns:
-            Formatted list of vector search results
+        Search using Neo4j vector index.
         """
+        query = """
+        CALL db.index.vector.queryNodes($index_name, $top_k, $embedding)
+        YIELD node, score
+        WITH node as c, score
+        RETURN c {
+            .*,
+            embedding: null
+        } as node_data,
+        score
+        ORDER BY score DESC
+        """
+        
+        async with self.driver.session() as session:
+            try:
+                result = await session.run(query, params)
+                records = await result.data()
+                
+                return [
+                    VectorSearchResult(
+                        node=record["node_data"],
+                        score=record["score"]
+                    )
+                    for record in records
+                ]
+            except Exception as e:
+                # Fall back to brute force if vector index fails
+                return await self._brute_force_search(
+                    query_embedding, top_k, "", params
+                )
+    
+    async def _brute_force_search(
+        self,
+        query_embedding: List[float],
+        top_k: int,
+        filter_clause: str,
+        params: Dict[str, Any]
+    ) -> List[VectorSearchResult]:
+        """
+        Brute force cosine similarity search with filters.
+        Calculates cosine similarity manually for maximum compatibility.
+        """
+        # Manual cosine similarity calculation with null safety
+        query = f"""
+        MATCH (c:Chunk)
+        {filter_clause}
+        WITH c, c.embedding as emb
+        WHERE emb IS NOT NULL AND size(emb) = size($embedding)
+        WITH c,
+             reduce(dot = 0.0, i in range(0, size(emb)-1) | dot + emb[i] * $embedding[i]) as dot_product,
+             sqrt(reduce(x = 0.0, i in range(0, size(emb)-1) | x + emb[i] * emb[i])) as norm_c,
+             sqrt(reduce(y = 0.0, i in range(0, size($embedding)-1) | y + $embedding[i] * $embedding[i])) as norm_q
+        WITH c, 
+             CASE WHEN norm_c > 0 AND norm_q > 0 THEN dot_product / (norm_c * norm_q) ELSE 0 END as score
+        WHERE score > 0
+        RETURN c {{
+            .*,
+            embedding: null
+        }} as node_data,
+        score
+        ORDER BY score DESC
+        LIMIT $top_k
+        """
+        
         async with self.driver.session() as session:
             result = await session.run(query, params)
             records = await result.data()
             
-            formatted_results: List[VectorSearchResult] = []
-            for record in records:
-                node_data = record["node"]
-                
-                # Extract chunk ID from various possible field names
-                chunk_id = node_data.get("chunk_id") or node_data.get("id") or ""
-                content = node_data.get("content") or node_data.get("text") or ""
-                
-                # Build metadata excluding core fields
-                metadata = {
+            return [
+                VectorSearchResult(
+                    node=record["node_data"],
+                    score=record["score"]
+                )
+                for record in records
+            ]

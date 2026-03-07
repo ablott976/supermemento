@@ -1,4 +1,5 @@
 """Service catalog API endpoints."""
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -15,6 +16,7 @@ from app.schemas.service import (
 from app.services.service_catalog import ServiceCatalogService
 
 router = APIRouter()
+
 _service_catalog = ServiceCatalogService()
 
 
