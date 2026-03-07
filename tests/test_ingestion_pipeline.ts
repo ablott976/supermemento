@@ -457,6 +457,42 @@ test("batchClassifyRelations batches memories and flattens results in input orde
   ]);
 });
 
+test("batchClassifyRelations passes correct batchIndex values", async () => {
+  const memories = ["m1", "m2", "m3", "m4", "m5"];
+  const seenBatchIndexes: number[] = [];
+
+  const classifier = async (_batch: readonly string[], batchIndex: number) => {
+    seenBatchIndexes.push(batchIndex);
+    return [] as const;
+  };
+
+  await batchClassifyRelations(memories, classifier, 2, 2);
+
+  assert.deepEqual(seenBatchIndexes, [0, 1, 2]);
+});
+
+test("batchClassifyRelations uses default batchSize and maxConcurrency", async () => {
+  const memories = Array.from({ length: 21 }, (_, index) => `m${index}`);
+  let maxActive = 0;
+  let active = 0;
+  const batchSizes: number[] = [];
+
+  const classifier = async (batch: readonly string[]) => {
+    batchSizes.push(batch.length);
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active -= 1;
+    return batch.map((memory) => `${memory}-ok`);
+  };
+
+  const result = await batchClassifyRelations(memories, classifier);
+
+  assert.equal(result.length, 21);
+  assert.deepEqual(batchSizes, [10, 10, 1]);
+  assert.equal(maxActive, 3);
+});
+
 test("batchClassifyRelations respects maxConcurrency for batch processing", async () => {
   const memories = Array.from({ length: 12 }, (_, index) => `m${index}`);
   let active = 0;
