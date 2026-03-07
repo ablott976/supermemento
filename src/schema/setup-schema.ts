@@ -10,6 +10,7 @@ const CONSTRAINTS_AND_INDEXES = [
   "CREATE INDEX memory_container IF NOT EXISTS FOR (m:Memory) ON (m.containerTag)",
   "CREATE INDEX memory_latest IF NOT EXISTS FOR (m:Memory) ON (m.isLatest)",
   "CREATE INDEX memory_type IF NOT EXISTS FOR (m:Memory) ON (m.memoryType)",
+  "CREATE INDEX memory_container_latest_type IF NOT EXISTS FOR (m:Memory) ON (m.containerTag, m.isLatest, m.memoryType)",
   "CREATE INDEX document_status IF NOT EXISTS FOR (d:Document) ON (d.status)"
 ] as const;
 

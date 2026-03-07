@@ -478,8 +478,8 @@ export class Neo4jClient {
         `
         MATCH (m:Memory)
         WHERE ($containerTag IS NULL OR m.containerTag = $containerTag)
-          AND ($memoryType IS NULL OR m.memoryType = $memoryType)
           AND ($isLatest IS NULL OR m.isLatest = $isLatest)
+          AND ($memoryType IS NULL OR m.memoryType = $memoryType)
         RETURN m
         ORDER BY m.createdAt DESC
         LIMIT $limit
