@@ -14,7 +14,6 @@ def _read(path: Path) -> str:
 def test_list_memories_excludes_embedding_field() -> None:
     """Verify listMemories returns expected Memory fields without embedding to reduce payload size."""
     source = _read(NEO4J_CLIENT_PATH)
-
     # Verify method exists with correct signature
     assert "public async listMemories(" in source, "listMemories method must be defined"
     assert "Promise<Memory[]>" in source, "listMemories must return Promise<Memory[]>"
@@ -37,7 +36,6 @@ def test_list_memories_excludes_embedding_field() -> None:
     # Extract and verify the projection excludes embedding
     match = re.search(r"RETURN\s+m\s*\{([^}]+)\}\s*as\s+m", method_section, re.DOTALL)
     assert match is not None, "Could not find RETURN projection in listMemories"
-
     projection_fields = match.group(1)
 
     # Critical: verify embedding is excluded
@@ -51,3 +49,44 @@ def test_list_memories_excludes_embedding_field() -> None:
     # Verify it uses mapMemory for consistent result mapping
     assert "this.mapMemory(" in method_section, \
         "listMemories should use this.mapMemory() for result mapping"
+
+
+def test_list_documents_excludes_raw_content_field() -> None:
+    """Verify listDocuments returns expected Document fields without rawContent to reduce payload size."""
+    source = _read(NEO4J_CLIENT_PATH)
+
+    # Verify method exists with correct signature
+    assert "public async listDocuments(" in source, "listDocuments method must be defined"
+    assert "Promise<Document[]>" in source, "listDocuments must return Promise<Document[]>"
+
+    # Extract the listDocuments method implementation
+    start_idx = source.find("public async listDocuments(")
+    assert start_idx != -1, "Could not find listDocuments method"
+
+    # Find the end of the method (next public method or end of class)
+    next_public = source.find("public async", start_idx + len("public async listDocuments("))
+    if next_public == -1:
+        method_section = source[start_idx:]
+    else:
+        method_section = source[start_idx:next_public]
+
+    # Verify the method uses a Cypher projection to limit returned fields
+    assert "RETURN d {" in method_section or "RETURN d{" in method_section, \
+        "listDocuments should use projection pattern 'RETURN d { ... }' to limit fields"
+
+    # Extract and verify the projection excludes rawContent
+    match = re.search(r"RETURN\s+d\s*\{([^}]+)\}\s*as\s+d", method_section, re.DOTALL)
+    assert match is not None, "Could not find RETURN projection in listDocuments"
+    projection_fields = match.group(1)
+
+    # Critical: verify rawContent is excluded
+    assert ".rawContent" not in projection_fields, \
+        "rawContent field must be excluded from listDocuments projection to reduce payload"
+
+    # Verify expected fields are included (basic sanity check)
+    assert ".id" in projection_fields, "id field should be included in projection"
+    assert ".title" in projection_fields, "title field should be included in projection"
+
+    # Verify it uses mapDocument for consistent result mapping
+    assert "this.mapDocument(" in method_section, \
+        "listDocuments should use this.mapDocument() for result mapping"
