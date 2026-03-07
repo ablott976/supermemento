@@ -45,7 +45,6 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 ### 1. Install dependencies
 
 From the project root (`supermemento-e9`), install Node.js dependencies:
-
 ```bash
 npm install
 ```
@@ -124,7 +123,6 @@ What this does:
 Notes:
 - The setup is idempotent (`IF NOT EXISTS`), so it is safe to run multiple times.
 - Re-run this command after pulling schema-related changes.
-
 ### 5. Run the server in development mode
 
 ```bash
@@ -143,7 +141,7 @@ MCP_HOST=127.0.0.1 MCP_PORT=3000 npm run dev
 MCP_TRANSPORT=stdio npm run dev
 ```
 
-For full architecture and implementation details, see [docs/SPEC.md](docs/SPEC.md).
+For the full project specification, see [docs/SPEC.md](docs/SPEC.md).
 
 ## License
 
