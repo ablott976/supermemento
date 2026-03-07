@@ -4,7 +4,14 @@ import { IngestionPipeline } from "../ingestion/pipeline.js";
 import { UrlExtractor } from "../ingestion/extractors/url-extractor.js";
 import { BaseConnector, type ConnectorDocument } from "./base-connector.js";
 
-/** URL crawler connector with content-change detection. */
+/**
+ * URL crawler connector with content-change detection.
+ * 
+ * Note: The monolithic `crawl()` method has been removed in favor of
+ * granular methods: `fetch()` for raw content extraction, `crawlUrl()`
+ * for single URL ingestion with change detection, and `crawlUrls()` for
+ * batch crawling with concurrency control and deduplication.
+ */
 export class WebCrawlerConnector extends BaseConnector {
   private readonly urls: string[];
   private readonly containerTag: string;
@@ -25,6 +32,7 @@ export class WebCrawlerConnector extends BaseConnector {
 
   /**
    * Fetches all configured URLs.
+   * Replaces the legacy `crawl()` method for raw content extraction.
    */
   public async fetch(): Promise<ConnectorDocument[]> {
     const extractor = new UrlExtractor();
@@ -47,10 +55,7 @@ export class WebCrawlerConnector extends BaseConnector {
         content,
         containerTag: this.containerTag,
         sourceUrl: url,
-        metadata: {
-          crawledBy: "web_crawler",
-          fetchedAt: new Date().toISOString()
-        }
+        metadata: { crawledBy: "web_crawler", fetchedAt: new Date().toISOString() }
       });
     }
     return docs;
@@ -58,16 +63,14 @@ export class WebCrawlerConnector extends BaseConnector {
 
   /**
    * Crawls one URL and ingests if changed.
+   * Part of the new granular API replacing the monolithic `crawl()`.
    * @param url URL to crawl.
    * @param containerTag Target container.
    */
   public async crawlUrl(
     url: string,
     containerTag: string
-  ): Promise<{
-    status: "ingested" | "skipped";
-    documentId?: string;
-  }> {
+  ): Promise<{ status: "ingested" | "skipped"; documentId?: string; }> {
     const batch = await this.crawlUrls([url], containerTag);
     const first = batch.results[0];
     if (!first) {
@@ -81,6 +84,8 @@ export class WebCrawlerConnector extends BaseConnector {
 
   /**
    * Crawls many URLs and ingests only changed content with limited concurrency.
+   * Primary replacement for the removed `crawl()` method, providing better
+   * control over concurrency and detailed result tracking.
    * @param urls URL list.
    * @param containerTag Target container.
    */
@@ -119,10 +124,7 @@ export class WebCrawlerConnector extends BaseConnector {
           content,
           containerTag,
           sourceUrl: url,
-          metadata: {
-            crawledBy: "web_crawler",
-            fetchedAt: new Date().toISOString()
-          }
+          metadata: { crawledBy: "web_crawler", fetchedAt: new Date().toISOString() }
         };
 
         const dedup = await this.dedup(doc);
