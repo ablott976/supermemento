@@ -236,6 +236,14 @@ export async function batchClassifyRelations<TMemory, TResult>(
   batchSize: number = 10,
   maxConcurrency: number = 3
 ): Promise<TResult[]> {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new Error("batchSize must be a positive integer");
+  }
+
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency <= 0) {
+    throw new Error("maxConcurrency must be a positive integer");
+  }
+
   if (memories.length === 0) {
     return [];
   }
@@ -247,7 +255,7 @@ export async function batchClassifyRelations<TMemory, TResult>(
     maxConcurrency
   );
 
-  return resultsPerBatch.flat() as TResult[];
+  return resultsPerBatch.flatMap((batch) => [...batch]);
 }
 
 export type BatchOptions = {
