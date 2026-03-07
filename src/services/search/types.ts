@@ -2,6 +2,17 @@ import type { Chunk, Memory } from "../../types/models.js";
 
 export type SearchMode = "memory" | "rag" | "hybrid";
 
+export interface VectorSearchFilter {
+  containerTag?: string;
+  memoryTypes?: Memory["memoryType"][];
+  minSimilarity?: number;
+  metadata?: Record<string, unknown>;
+  dateRange?: {
+    start?: Date;
+    end?: Date;
+  };
+}
+
 export interface SearchParams {
   query: string;
   containerTag?: string;
@@ -12,6 +23,7 @@ export interface SearchParams {
   min_similarity?: number;
   memoryTypes?: Memory["memoryType"][];
   includeExpired?: boolean;
+  vectorFilter?: VectorSearchFilter;
 }
 
 export interface SearchResult {
@@ -45,3 +57,18 @@ export type SearchChunkHit = {
   chunk: Chunk;
   score: number;
 };
+
+export interface FilteredVectorSearchRequest {
+  query: string;
+  embedding?: number[];
+  filters?: VectorSearchFilter;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FilteredVectorSearchResponse {
+  results: SearchResult[];
+  total: number;
+  query: string;
+  filtersApplied: VectorSearchFilter;
+}
