@@ -63,3 +63,19 @@ async def update_client_service(
         return await service_catalog.update_client_service(id, sid, service_update)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/api/clients/{id}/services/{sid}",
+    response_model=ClientServiceResponse,
+)
+async def delete_client_service(
+    id: str,
+    sid: str,
+    service_catalog: Annotated[ServiceCatalogService, Depends(get_service_catalog)],
+) -> ClientServiceResponse:
+    """Delete a service assignment for a client."""
+    try:
+        return await service_catalog.delete_client_service(id, sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
