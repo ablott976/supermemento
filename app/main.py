@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +54,9 @@ counter: int = 0
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
+    global items_db, counter
+    items_db = {}
+    counter = 0
     logger.info("Starting up application...")
     yield
     logger.info("Shutting down application...")
@@ -125,33 +128,4 @@ async def update_item(item_id: int, item_update: ItemUpdate):
         )
     stored_item = items_db[item_id]
     update_data = item_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(stored_item, field, value)
-    items_db[item_id] = stored_item
-    logger.info(f"Updated item with id {item_id}")
-    return stored_item
-
-
-@app.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_item(item_id: int):
-    """Delete an item."""
-    if item_id not in items_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item with id {item_id} not found",
-        )
-    del items_db[item_id]
-    logger.info(f"Deleted item with id {item_id}")
-    return None
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Global exception handler."""
-    if isinstance(exc, HTTPException):
-        raise exc
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error"},
-    )
+    try:
