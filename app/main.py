@@ -1,8 +1,8 @@
 """Application entrypoint."""
+
 from __future__ import annotations
 
 from fastapi import FastAPI
-
 from app.api.health import router as health_router
 from app.api.services import router as services_router
 

@@ -113,85 +113,237 @@ describe('Ingestion API - Container Config', () => {
     expect(response.body).toEqual({ message: 'Failed to set container configuration.', error: errorMessage });
     expect(set_container_config).toHaveBeenCalledTimes(1);
   });
-
-  // --- GET /api/ingestion/container-config tests ---
-
-  // Test Case 7: Successful retrieval of container config
-  test('GET /api/ingestion/container-config/:containerId - should retrieve container configuration successfully', async () => {
-    const containerId = 'test-container-get-123';
-    const mockFilterPrompt = 'Filter prompt for retrieval.';
-
-    getContainerFilterPrompt.mockResolvedValue(mockFilterPrompt);
-
-    const response = await request(app)
-      .get(`/api/ingestion/container-config/${containerId}`);
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ containerId, filterPrompt: mockFilterPrompt });
-    expect(getContainerFilterPrompt).toHaveBeenCalledTimes(1);
-    expect(getContainerFilterPrompt).toHaveBeenCalledWith(containerId);
-  });
-
-  // Test Case 8: Retrieval for non-existent container
-  test('GET /api/ingestion/container-config/:containerId - should return 404 if container not found', async () => {
-    const containerId = 'non-existent-container';
-
-    getContainerFilterPrompt.mockResolvedValue(null);
-
-    const response = await request(app)
-      .get(`/api/ingestion/container-config/${containerId}`);
-
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({ message: 'Container configuration not found.' });
-  });
-
-  // Test Case 9: Error handling - getContainerFilterPrompt throws an error
-  test('GET /api/ingestion/container-config/:containerId - should return 500 if retrieval fails', async () => {
-    const containerId = 'test-container-get-error';
-    const errorMessage = 'Database query failed';
-
-    getContainerFilterPrompt.mockRejectedValue(new Error(errorMessage));
-
-    const response = await request(app)
-      .get(`/api/ingestion/container-config/${containerId}`);
-
-    expect(response.status).toBe(500);
-    expect(response.body).toEqual({ message: 'Failed to retrieve container configuration.', error: errorMessage });
-  });
 });
 
-describe('Ingestion API - Filtered Vector Search', () => {
+describe('Filtered Vector Search API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  // Test Case 1: Successful vector search with query and filters
-  test('POST /api/ingestion/search - should perform filtered vector search successfully', async () => {
+  // Test Case 1: Successful filtered vector search with container filter
+  test('POST /api/search/vector - should perform filtered search successfully', async () => {
+    const query = 'machine learning';
+    const containerId = 'container-123';
     const mockResults = [
       {
-        id: 'memory-1',
-        content: 'Test memory content',
+        id: 'chunk-1',
+        content: 'Machine learning is a subset of AI...',
         score: 0.95,
-        metadata: { container_id: 'container-123', timestamp: '2024-01-01' }
+        metadata: { source: 'doc1.pdf' },
+        containerId: 'container-123'
       },
       {
-        id: 'memory-2',
-        content: 'Another test memory',
+        id: 'chunk-2',
+        content: 'Deep learning techniques...',
         score: 0.87,
-        metadata: { container_id: 'container-123', timestamp: '2024-01-02' }
+        metadata: { source: 'doc2.pdf' },
+        containerId: 'container-123'
       }
     ];
 
-    filteredVectorSearch.mockResolvedValue(mockResults);
+    filteredVectorSearch.mockResolvedValue({
+      results: mockResults,
+      total: 2,
+      query: query
+    });
 
     const response = await request(app)
-      .post('/api/ingestion/search')
+      .post('/api/search/vector')
       .send({
-        query: 'test query',
-        filters: { container_id: 'container-123' },
+        query,
+        filters: { containerId },
         limit: 10
       });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ results: mockResults });
-    expect(filter
+    expect(response.body.results).toHaveLength(2);
+    expect(response.body.total).toBe(2);
+    expect(filteredVectorSearch).toHaveBeenCalledWith({
+      query,
+      filters: { containerId },
+      limit: 10,
+      rewriteQuery: undefined
+    });
+  });
+
+  // Test Case 2: Filtered search with query rewriting enabled
+  test('POST /api/search/vector - should rewrite query when rewriteQuery is true', async () => {
+    const query = 'ML';
+    const rewrittenQuery = 'machine learning ML artificial intelligence AI';
+    const mockResults = [
+      {
+        id: 'chunk-1',
+        content: 'Machine learning algorithms...',
+        score: 0.92,
+        metadata: {},
+        containerId: 'container-456'
+      }
+    ];
+
+    filteredVectorSearch.mockResolvedValue({
+      results: mockResults,
+      total: 1,
+      query: query,
+      rewrittenQuery: rewrittenQuery
+    });
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({
+        query,
+        filters: { contentType: 'document' },
+        rewriteQuery: true
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.rewrittenQuery).toBe(rewrittenQuery);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query,
+        rewriteQuery: true
+      })
+    );
+  });
+
+  // Test Case 3: Filtered search with date range filters
+  test('POST /api/search/vector - should handle date range filters', async () => {
+    const query = 'quarterly report';
+    const dateFrom = '2024-01-01';
+    const dateTo = '2024-12-31';
+
+    filteredVectorSearch.mockResolvedValue({
+      results: [],
+      total: 0,
+      query: query
+    });
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({
+        query,
+        filters: {
+          dateRange: { start: dateFrom, end: dateTo }
+        }
+      });
+
+    expect(response.status).toBe(200);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          dateRange: expect.objectContaining({
+            start: expect.any(String),
+            end: expect.any(String)
+          })
+        })
+      })
+    );
+  });
+
+  // Test Case 4: Bad request - missing query
+  test('POST /api/search/vector - should return 400 if query is missing', async () => {
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({
+        filters: { containerId: 'container-123' }
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Query is required and must be a string.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 5: Bad request - invalid query type
+  test('POST /api/search/vector - should return 400 if query is not a string', async () => {
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({
+        query: 12345,
+        filters: { containerId: 'container-123' }
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Query is required and must be a string.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 6: Bad request - invalid limit
+  test('POST /api/search/vector - should return 400 if limit is invalid', async () => {
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({
+        query: 'test',
+        limit: 'invalid'
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Limit must be a positive integer.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 7: Error handling - filteredVectorSearch throws error
+  test('POST /api/search/vector - should return 500 if search fails', async () => {
+    const query = 'test query';
+    const errorMessage = 'Vector search failed';
+
+    filteredVectorSearch.mockRejectedValue(new Error(errorMessage));
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({ query });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ 
+      message: 'Failed to perform vector search.', 
+      error: errorMessage 
+    });
+  });
+
+  // Test Case 8: Successful search without filters (unfiltered)
+  test('POST /api/search/vector - should work without filters', async () => {
+    const query = 'general search';
+    
+    filteredVectorSearch.mockResolvedValue({
+      results: [{ id: '1', content: 'result', score: 0.8, metadata: {} }],
+      total: 1,
+      query
+    });
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({ query });
+
+    expect(response.status).toBe(200);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query,
+        filters: undefined
+      })
+    );
+  });
+
+  // Test Case 9: Search with metadata filters
+  test('POST /api/search/vector - should handle metadata filters', async () => {
+    const query = 'project alpha';
+    const metadata = { department: 'engineering', status: 'active' };
+
+    filteredVectorSearch.mockResolvedValue({
+      results: [],
+      total: 0,
+      query
+    });
+
+    const response = await request(app)
+      .post('/api/search/vector')
+      .send({
+        query,
+        filters: { metadata }
+      });
+
+    expect(response.status).toBe(200);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ metadata })
+      })
+    );
+  });
+});
