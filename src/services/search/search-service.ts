@@ -46,26 +46,22 @@ export class SearchService {
     const embedding = await this.embeddingService.generateEmbedding(rewrittenQuery);
 
     // Execute memory and chunk searches in parallel using Promise.all
-    const memorySearchPromise = mode === "rag" 
-      ? Promise.resolve([]) 
-      : this.neo4jClient.semanticSearchMemoriesAdvanced({
-          embedding,
-          containerTag: params.containerTag,
-          minScore,
-          limit,
-          isLatestOnly: true,
-          memoryTypes: params.memoryTypes,
-          includeExpired: params.includeExpired ?? false
-        });
+    const memorySearchPromise = mode === "rag" ? Promise.resolve([]) : this.neo4jClient.semanticSearchMemoriesAdvanced({
+      embedding,
+      containerTag: params.containerTag,
+      minScore,
+      limit,
+      isLatestOnly: true,
+      memoryTypes: params.memoryTypes,
+      includeExpired: params.includeExpired ?? false
+    });
 
-    const chunkSearchPromise = mode === "memory" 
-      ? Promise.resolve([]) 
-      : this.neo4jClient.semanticSearchChunks({
-          embedding,
-          containerTag: params.containerTag,
-          minScore,
-          limit
-        });
+    const chunkSearchPromise = mode === "memory" ? Promise.resolve([]) : this.neo4jClient.semanticSearchChunks({
+      embedding,
+      containerTag: params.containerTag,
+      minScore,
+      limit
+    });
 
     const [memoryResults, chunkResults] = await Promise.all([
       memorySearchPromise,
@@ -95,9 +91,7 @@ export class SearchService {
     ];
 
     const deduped = this.dedupe(merged);
-    const ranked = params.rerank 
-      ? await this.defaultReranker.rerank(query, deduped) 
-      : await this.fallbackReranker.rerank(query, deduped);
+    const ranked = params.rerank ? await this.defaultReranker.rerank(query, deduped) : await this.fallbackReranker.rerank(query, deduped);
 
     return {
       query,
