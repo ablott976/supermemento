@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import logging
 import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Configure logging
 logging.basicConfig(
@@ -22,8 +24,8 @@ class Item(BaseModel):
     price: float = Field(..., gt=0)
     is_active: bool = True
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Sample Item",
                 "description": "A sample item description",
@@ -31,6 +33,7 @@ class Item(BaseModel):
                 "is_active": True,
             }
         }
+    )
 
 
 class ItemUpdate(BaseModel):
@@ -126,7 +129,7 @@ async def update_item(item_id: int, item_update: ItemUpdate):
             detail=f"Item with id {item_id} not found",
         )
     stored_item = items_db[item_id]
-    update_data = item_update.model_dump(exclude_unset=True)
+    update_data = item_update.model_dump(exclude_unset=True, exclude_none=True)
     updated_item = stored_item.model_copy(update=update_data)
     items_db[item_id] = updated_item
     logger.info("Updated item with id %s", item_id)
@@ -143,4 +146,3 @@ async def delete_item(item_id: int):
         )
     del items_db[item_id]
     logger.info("Deleted item with id %s", item_id)
-    return None
