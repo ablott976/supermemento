@@ -1,1 +1,3 @@
-"""Task management application."""
+"""Application package."""
+
+__version__ = "0.1.0"
