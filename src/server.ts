@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { loadConfig } from "./config.js";
 import { Neo4jClient } from "./db/neo4j-client.js";
 import { setupSchema } from "./schema/setup-schema.js";
@@ -114,4 +115,128 @@ const updateMemoryArgsSchema = z.object({
   content: z.string().min(1).optional(),
   memoryType: z.nativeEnum(MemoryType).optional(),
   isLatest: z.boolean().optional(),
-  confidence: z.number().min(0
+  confidence: z.number().min(0).max(1).optional()
+});
+
+async function main() {
+  const config = await loadConfig();
+  const neo4jClient = new Neo4jClient(config.neo4j);
+  
+  await neo4jClient.connect();
+  await setupSchema(neo4jClient);
+  
+  const embeddingService = new EmbeddingService(config.embeddings);
+  const forgettingService = new ForgettingService(neo4jClient);
+  const memoryExtractor = new MemoryExtractorService(embeddingService);
+  const ingestionPipeline = new IngestionPipeline(
+    neo4jClient,
+    embeddingService,
+    memoryExtractor
+  );
+  const profileService = new ProfileService(neo4jClient, embeddingService);
+  const relationClassifier = new RelationClassifierService(neo4jClient, embeddingService);
+  const searchService = new SearchService(neo4jClient, embeddingService);
+  const webCrawler = new WebCrawlerConnector();
+
+  const server = new Server(
+    {
+      name: "memory-server",
+      version: "1.0.0",
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async (): Promise<ListToolsResult> => {
+    return {
+      tools: [
+        {
+          name: "create_memory",
+          description: "Create a new memory in the system",
+          inputSchema: zodToJsonSchema(createMemoryArgsSchema) as any,
+        },
+        {
+          name: "semantic_search",
+          description: "Search for memories using semantic similarity",
+          inputSchema: zodToJsonSchema(semanticSearchArgsSchema) as any,
+        },
+        {
+          name: "create_document",
+          description: "Create a new document",
+          inputSchema: zodToJsonSchema(createDocumentArgsSchema) as any,
+        },
+        {
+          name: "ingest_document",
+          description: "Ingest content as a document",
+          inputSchema: zodToJsonSchema(ingestDocumentArgsSchema) as any,
+        },
+        {
+          name: "ingest_url",
+          description: "Ingest content from a URL",
+          inputSchema: zodToJsonSchema(ingestUrlArgsSchema) as any,
+        },
+        {
+          name: "ingest_conversation",
+          description: "Ingest a conversation",
+          inputSchema: zodToJsonSchema(ingestConversationArgsSchema) as any,
+        },
+        {
+          name: "get_document_status",
+          description: "Get the processing status of a document",
+          inputSchema: zodToJsonSchema(getDocumentStatusArgsSchema) as any,
+        },
+        {
+          name: "delete_document",
+          description: "Delete a document and its associated data",
+          inputSchema: zodToJsonSchema(deleteDocumentArgsSchema) as any,
+        },
+        {
+          name: "update_document",
+          description: "Update a document's metadata or content",
+          inputSchema: zodToJsonSchema(updateDocumentArgsSchema) as any,
+        },
+        {
+          name: "list_documents",
+          description: "List documents with optional filtering",
+          inputSchema: zodToJsonSchema(listDocumentsArgsSchema) as any,
+        },
+        {
+          name: "list_memories",
+          description: "List memories with optional filtering",
+          inputSchema: zodToJsonSchema(listMemoriesArgsSchema) as any,
+        },
+        {
+          name: "delete_memory",
+          description: "Delete a memory",
+          inputSchema: zodToJsonSchema(deleteMemoryArgsSchema) as any,
+        },
+        {
+          name: "update_memory",
+          description: "Update a memory's content or metadata",
+          inputSchema: zodToJsonSchema(updateMemoryArgsSchema) as any,
+        },
+      ],
+    };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+    try {
+      const { name, arguments: args } = request.params;
+
+      switch (name) {
+        case "create_memory": {
+          const parsed = createMemoryArgsSchema.parse(args);
+          const result = await neo4jClient.createMemory(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case "semantic_search": {
+          const parsed = semanticSearchArgsSchema.parse(args);
+          const results = await searchService.semanticSearch(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(results, null,

@@ -14,6 +14,7 @@ def _read(path: Path) -> str:
 def test_list_memories_excludes_embedding_field() -> None:
     """Verify listMemories returns expected Memory fields without embedding to reduce payload size."""
     source = _read(NEO4J_CLIENT_PATH)
+
     # Verify method exists with correct signature
     assert "public async listMemories(" in source, "listMemories method must be defined"
     assert "Promise<Memory[]>" in source, "listMemories must return Promise<Memory[]>"

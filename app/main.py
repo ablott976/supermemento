@@ -2,9 +2,8 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, Field
 
 # Configure logging
 logging.basicConfig(
@@ -128,4 +127,20 @@ async def update_item(item_id: int, item_update: ItemUpdate):
         )
     stored_item = items_db[item_id]
     update_data = item_update.model_dump(exclude_unset=True)
-    try:
+    updated_item = stored_item.model_copy(update=update_data)
+    items_db[item_id] = updated_item
+    logger.info(f"Updated item with id {item_id}")
+    return updated_item
+
+
+@app.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_item(item_id: int):
+    """Delete an item."""
+    if item_id not in items_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item with id {item_id} not found",
+        )
+    del items_db[item_id]
+    logger.info(f"Deleted item with id {item_id}")
+    return None
