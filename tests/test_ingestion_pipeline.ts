@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  batchClassifyRelations,
   batchCreateMemories,
   parallelExtractMemories,
   type MemoryBatchInput,
@@ -241,6 +242,62 @@ test("parallelExtractMemories respects maxConcurrency", async () => {
   };
 
   await parallelExtractMemories(chunks, memoryExtractorService as never, null, 2);
+
+  assert.equal(maxActive, 2);
+});
+
+test("batchClassifyRelations returns [] and does not call classifier when memories are empty", async () => {
+  let callCount = 0;
+  const classifier = async () => {
+    callCount += 1;
+    return [] as const;
+  };
+
+  const result = await batchClassifyRelations([], classifier, 3, 2);
+
+  assert.deepEqual(result, []);
+  assert.equal(callCount, 0);
+});
+
+test("batchClassifyRelations batches memories and flattens results in input order", async () => {
+  const memories = ["m1", "m2", "m3", "m4", "m5"];
+  const batchCalls: string[][] = [];
+  const classifier = async (batch: readonly string[]) => {
+    batchCalls.push([...batch]);
+    if (batch[0] === "m1") {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return batch.map((memory) => `${memory}-classified`);
+  };
+
+  const result = await batchClassifyRelations(memories, classifier, 2, 3);
+
+  assert.deepEqual(batchCalls, [["m1", "m2"], ["m3", "m4"], ["m5"]]);
+  assert.deepEqual(result, [
+    "m1-classified",
+    "m2-classified",
+    "m3-classified",
+    "m4-classified",
+    "m5-classified",
+  ]);
+});
+
+test("batchClassifyRelations respects maxConcurrency for batch processing", async () => {
+  const memories = Array.from({ length: 12 }, (_, index) => `m${index}`);
+  let active = 0;
+  let maxActive = 0;
+
+  const classifier = async (batch: readonly string[]) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    active -= 1;
+    return batch.map((memory) => `${memory}-ok`);
+  };
+
+  await batchClassifyRelations(memories, classifier, 2, 2);
 
   assert.equal(maxActive, 2);
 });
