@@ -173,7 +173,8 @@ export async function batchCreateMemories(
   const now = new Date().toISOString();
 
   // Prepare data with generated IDs and timestamps
-  const memoriesWithIds = memories.map((memory) => ({
+  const memoriesWithIds = memories.map((memory, index) => ({
+    idx: index,
     id: uuidv4(),
     content: memory.content,
     memoryType: memory.memoryType,
@@ -191,6 +192,7 @@ export async function batchCreateMemories(
     const result = await session.run(
       `
       UNWIND $memories as memory
+      MATCH (d:Document {id: memory.sourceDocId})
       CREATE (m:Memory {
         id: memory.id,
         content: memory.content,
@@ -204,10 +206,9 @@ export async function batchCreateMemories(
         createdAt: datetime(memory.createdAt),
         updatedAt: datetime(memory.updatedAt)
       })
-      WITH m, memory
-      MATCH (d:Document {id: memory.sourceDocId})
       CREATE (m)-[:EXTRACTED_FROM]->(d)
-      RETURN m.id as id
+      RETURN memory.idx as idx, m.id as id
+      ORDER BY idx ASC
       `,
       { memories: memoriesWithIds }
     );
