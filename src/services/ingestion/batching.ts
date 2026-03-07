@@ -215,3 +215,34 @@ export async function batchCreateMemories(
     await session.close();
   }
 }
+
+/**
+ * Classify memory relations in batches to reduce LLM round-trips.
+ * Each batch should be handled by a classifier implementation that performs
+ * one multi-memory classification call.
+ *
+ * @param memories Memories to classify
+ * @param batchClassifier Classifier function invoked once per batch
+ * @param batchSize Number of memories per classification batch
+ * @param maxConcurrency Maximum number of batches processed in parallel
+ * @returns Flattened list of per-memory classification results
+ */
+export async function batchClassifyRelations<TMemory, TResult>(
+  memories: readonly TMemory[],
+  batchClassifier: (batch: readonly TMemory[]) => Promise<readonly TResult[]>,
+  batchSize: number = 10,
+  maxConcurrency: number = 3
+): Promise<TResult[]> {
+  if (memories.length === 0) {
+    return [];
+  }
+
+  const batches = chunkList(memories, batchSize);
+  const resultsPerBatch = await gatherWithLimit(
+    batches,
+    async (batch) => batchClassifier(batch),
+    maxConcurrency
+  );
+
+  return resultsPerBatch.flat() as TResult[];
+}
