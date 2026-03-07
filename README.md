@@ -87,14 +87,22 @@ ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 ```
 
-Variable reference:
-- `NEO4J_URI` Neo4j Bolt endpoint (`bolt://localhost:7687` for local dev, `bolt://neo4j:7687` inside Docker network)
-- `NEO4J_USER` Neo4j username
-- `NEO4J_PASSWORD` Neo4j password (must match Docker Compose `NEO4J_AUTH`)
-- `OPENAI_API_KEY` required for embeddings and OpenAI-powered flows
-- `ANTHROPIC_API_KEY` required for relation classification/extraction flows
-- `ANTHROPIC_MODEL` optional model override (default: `claude-haiku-4-5-20251001`)
-- `OPENAI_EMBEDDING_MODEL` optional embedding model override (default: `text-embedding-3-large`)
+Required variables:
+- `NEO4J_URI` Neo4j Bolt endpoint.
+- `NEO4J_USER` Neo4j username.
+- `NEO4J_PASSWORD` Neo4j password (must match Docker Compose `NEO4J_AUTH`).
+- `OPENAI_API_KEY` OpenAI API key used for embeddings.
+- `ANTHROPIC_API_KEY` Anthropic API key used by extraction/classification services.
+
+Optional variables:
+- `ANTHROPIC_MODEL` model override (default: `claude-haiku-4-5-20251001`).
+- `OPENAI_EMBEDDING_MODEL` embedding model override (default: `text-embedding-3-large`).
+
+`NEO4J_URI` quick guide:
+- Use `bolt://localhost:7687` when running `npm run dev` from your host machine.
+- Use `bolt://neo4j:7687` when your app runs inside the same Docker Compose network as Neo4j.
+
+Keep secrets local only. Do not commit `.env` or API keys.
 
 Load the variables into your current shell session before running the local scripts:
 
