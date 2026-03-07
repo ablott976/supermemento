@@ -1,0 +1,21 @@
+But the target files are `.ts` files. This suggests that perhaps the user made a mistake and actually wants Python implementations? Or perhaps they want me to convert the TypeScript to Python?
+
+Wait, looking at the "Current Code" sections:
+- `src/tests/ingestion.test.ts` contains TypeScript
+- `src/services/ingestion/batching.ts` contains TypeScript
+- `src/services/ingestion/pipeline.ts` contains TypeScript
+- `src/services/ingestion/batching.py` contains Python (shown at the end)
+
+The presence of both `.ts` and `.py` versions suggests this might be a polyglot project, or perhaps the user is showing me what exists and wants me to write Python tests?
+
+But the subtask says: "Write tests for the new batchCreateMemories function and the modified processDocument and extractMemories methods"
+
+Given that:
+1. The target files listed are `.ts` files
+2. The current code shown is TypeScript
+3. The function signatures shown are TypeScript
+4. The test file shown is TypeScript using Jest
+
+I think the user wants TypeScript code, but the instruction at the end mentions Python 3.12+ because this is a template instruction that wasn't updated. Or, alternatively, the user wants me to write Python equivalents?
+
+Actually, looking more carefully at the "Current Code" section for `src/services/ingestion/batching.ts`, it ends with:

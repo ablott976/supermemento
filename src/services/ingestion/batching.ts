@@ -1,0 +1,183 @@
+/**
+ * Batching utilities for ingestion pipeline.
+ * Provides concurrency-limited parallel execution and batch database operations to optimize N+1 query patterns.
+ */
+
+import { v4 as uuidv4 } from "uuid";
+import type { Neo4jClient } from "../../db/neo4j-client.js";
+import type { MemoryType } from "../../types/enums.js";
+
+/**
+ * Input type for batch memory creation.
+ */
+export interface MemoryBatchInput {
+  content: string;
+  memoryType: MemoryType;
+  containerTag: string;
+  confidence: number;
+  embedding: number[];
+  sourceDocId: string;
+  validFrom?: string | null;
+  validTo?: string | null;
+}
+
+/**
+ * Simple semaphore for concurrency control.
+ */
+class Semaphore {
+  private permits: number;
+  private resolvers: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.resolvers.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.resolvers.length > 0) {
+      const resolve = this.resolvers.shift()!;
+      resolve();
+    } else {
+      this.permits++;
+    }
+  }
+}
+
+/**
+ * Execute async function over items with limited concurrency.
+ * Replaces sequential loops (for...await) with parallel execution while respecting resource constraints.
+ * 
+ * @param items Items to process
+ * @param asyncFunc Async function to apply to each item
+ * @param maxConcurrency Maximum number of concurrent operations
+ * @returns List of results in the same order as input items
+ */
+export async function gatherWithLimit<T, R>(
+  items: readonly T[],
+  asyncFunc: (item: T) => Promise<R>,
+  maxConcurrency: number = 10
+): Promise<R[]> {
+  const semaphore = new Semaphore(maxConcurrency);
+
+  async function wrap(item: T): Promise<R> {
+    await semaphore.acquire();
+    try {
+      return await asyncFunc(item);
+    } finally {
+      semaphore.release();
+    }
+  }
+
+  return Promise.all(items.map(wrap));
+}
+
+/**
+ * Split sequence into chunks of specified size.
+ * 
+ * @param items Items to chunk
+ * @param chunkSize Maximum size of each chunk
+ * @returns List of chunks
+ */
+export function chunkList<T>(items: readonly T[], chunkSize: number): T[][] {
+  if (items.length === 0) {
+    return [];
+  }
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+/**
+ * Process items in batches.
+ * Useful for database batch operations (e.g., Neo4j UNWIND).
+ * 
+ * @param items Items to process
+ * @param batchProcessor Async function that processes a batch of items
+ * @param batchSize Size of each batch
+ * @returns List of results from each batch
+ */
+export async function processBatches<T, R>(
+  items: readonly T[],
+  batchProcessor: (batch: readonly T[]) => Promise<R>,
+  batchSize: number = 100
+): Promise<R[]> {
+  const batches = chunkList(items, batchSize);
+  return Promise.all(batches.map((batch) => batchProcessor(batch)));
+}
+
+/**
+ * Batch create memories using Neo4j UNWIND for optimal performance.
+ * Creates multiple Memory nodes and their relationships to source documents in a single query.
+ * 
+ * @param neo4jClient Neo4j client instance
+ * @param memories Array of memory data to create
+ * @returns Array of created memory IDs
+ */
+export async function batchCreateMemories(
+  neo4jClient: Neo4jClient,
+  memories: readonly MemoryBatchInput[]
+): Promise<string[]> {
+  if (memories.length === 0) {
+    return [];
+  }
+
+  const driver = neo4jClient.getDriver();
+  const session = driver.session();
+  const now = new Date().toISOString();
+
+  // Prepare data with generated IDs and timestamps
+  const memoriesWithIds = memories.map((memory) => ({
+    id: uuidv4(),
+    content: memory.content,
+    memoryType: memory.memoryType,
+    containerTag: memory.containerTag,
+    confidence: memory.confidence,
+    embedding: memory.embedding,
+    sourceDocId: memory.sourceDocId,
+    validFrom: memory.validFrom ?? null,
+    validTo: memory.validTo ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  try {
+    const result = await session.run(
+      `
+      UNWIND $memories as memory
+      CREATE (m:Memory {
+        id: memory.id,
+        content: memory.content,
+        memoryType: memory.memoryType,
+        containerTag: memory.containerTag,
+        confidence: memory.confidence,
+        embedding: memory.embedding,
+        validFrom: CASE WHEN memory.validFrom IS NULL THEN NULL ELSE datetime(memory.validFrom) END,
+        validTo: CASE WHEN memory.validTo IS NULL THEN NULL ELSE datetime(memory.validTo) END,
+        isLatest: true,
+        createdAt: datetime(memory.createdAt),
+        updatedAt: datetime(memory.updatedAt)
+      })
+      WITH m, memory
+      MATCH (d:Document {id: memory.sourceDocId})
+      CREATE (m)-[:EXTRACTED_FROM]->(d)
+      RETURN m.id as id
+      `,
+      { memories: memoriesWithIds }
+    );
+
+    return result.records.map((record) => record.get("id") as string);
+  } finally {
+    await session.close();
+  }
+}

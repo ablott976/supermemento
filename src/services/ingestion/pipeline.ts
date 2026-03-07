@@ -5,12 +5,8 @@ import { EmbeddingService } from "../embedding.js";
 import { RelationClassifierService } from "../relation-classifier.js";
 import { ChunkingService, type ChunkPayload } from "./chunker.js";
 import { MemoryExtractorService, type ExtractedMemory } from "./memory-extractor.js";
-import {
-  ConversationExtractor,
-  TextExtractor,
-  UrlExtractor,
-  type Extractor
-} from "./extractors/index.js";
+import { ConversationExtractor, TextExtractor, UrlExtractor, type Extractor } from "./extractors/index.js";
+import { batchCreateMemories, gatherWithLimit } from "./batching.js";
 
 export type PipelineInput = {
   title: string;
@@ -57,11 +53,10 @@ export class IngestionPipeline {
   }> {
     const document = await this.neo4jClient.createDocument(input);
     const result = await this.processDocument(document.id);
-
     return {
       document: result.document,
       chunkCount: result.chunkCount,
-      memoryCount: result.memoryCount
+      memoryCount: result.memoryCount,
     };
   }
 
@@ -85,15 +80,12 @@ export class IngestionPipeline {
       const extractedText = await extractor.extract(document);
       const extractedDoc = await this.neo4jClient.updateDocument(document.id, {
         rawContent: extractedText,
-        status: DocumentStatus.Extracting
+        status: DocumentStatus.Extracting,
       });
 
       await this.setStatus(document.id, DocumentStatus.Chunking);
       const chunks = this.chunkingService.chunk(
-        {
-          ...document,
-          rawContent: extractedText
-        },
+        { ...document, rawContent: extractedText },
         extractedText
       );
 
@@ -118,109 +110,36 @@ export class IngestionPipeline {
             containerTag: document.containerTag,
             sourceDocId: document.id,
             metadata: typeof chunk.metadata === "object" ? JSON.stringify(chunk.metadata) : (chunk.metadata ?? ""),
-            embedding: chunkEmbeddings[index] ?? []
+            embedding: chunkEmbeddings[index] ?? [],
           }))
         );
       }
 
-      for (let i = 0; i < extractedMemories.length; i += 1) {
-        const extractedMemory = extractedMemories[i];
-        if (!extractedMemory) {
-          continue;
-        }
+      // Prepare batch inputs for memory creation
+      const memoryInputs = extractedMemories
+        .map((extractedMemory, i) => {
+          const embedding = memoryEmbeddings[i];
+          if (!extractedMemory || !embedding) return null;
+          return {
+            content: extractedMemory.content,
+            memoryType: extractedMemory.memoryType,
+            containerTag: document.containerTag,
+            confidence: extractedMemory.confidence,
+            embedding: embedding,
+            sourceDocId: document.id,
+            validFrom: extractedMemory.validFrom ?? null,
+            validTo: extractedMemory.validTo ?? null,
+          };
+        })
+        .filter((input): input is NonNullable<typeof input> => input !== null);
 
-        const embedding = memoryEmbeddings[i];
-        if (!embedding) {
-          continue;
-        }
+      // Batch create memories using UNWIND for optimal performance
+      const memoryIds = await batchCreateMemories(this.neo4jClient, memoryInputs);
 
-        const memory = await this.neo4jClient.createMemory({
-          content: extractedMemory.content,
-          memoryType: extractedMemory.memoryType,
-          containerTag: document.containerTag,
-          confidence: extractedMemory.confidence,
-          validFrom: extractedMemory.validFrom ?? undefined,
-          validTo: extractedMemory.validTo ?? undefined,
-          sourceDocId: document.id,
-          embedding
-        });
-
-        try {
-          await this.relationClassifierService.classifyAndApply(memory);
-        } catch (e) {
-          console.warn(`[pipeline] RelationClassifier skipped for memory ${memory.id}:`, (e as Error).message);
-        }
-      }
-
-      const finalDocument = await this.neo4jClient.updateDocument(document.id, {
-        status: DocumentStatus.Done,
-        rawContent: extractedText
-      });
-
-      if (!finalDocument && !extractedDoc) {
-        throw new Error(`Failed to update final status for document ${document.id}`);
-      }
-
-      return {
-        document: finalDocument ?? extractedDoc ?? document,
-        chunkCount: chunks.length,
-        memoryCount: extractedMemories.length
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown pipeline error";
-      const metaStr = JSON.stringify({
-        pipelineError: message,
-        pipelineErrorAt: new Date().toISOString()
-      });
-
-      await this.neo4jClient.updateDocument(document.id, {
-        status: DocumentStatus.Error,
-        metadata: metaStr
-      });
-      throw error;
-    }
-  }
-
-  private async extractMemories(
-    chunks: ChunkPayload[],
-    filterPrompt: string | null
-  ): Promise<ExtractedMemory[]> {
-    const allMemories: ExtractedMemory[] = [];
-
-    for (const chunk of chunks) {
-      const memories = await this.memoryExtractorService.extractFromChunk(chunk.content, {
-        filterPrompt
-      });
-      allMemories.push(...memories);
-    }
-
-    return allMemories;
-  }
-
-  private getExtractor(contentType: ContentType): Extractor {
-    if (contentType === ContentType.Url) {
-      return new UrlExtractor();
-    }
-
-    if (contentType === ContentType.Conversation) {
-      return new ConversationExtractor();
-    }
-
-    return new TextExtractor();
-  }
-
-  private async setStatus(documentId: string, status: DocumentStatus): Promise<void> {
-    await this.neo4jClient.updateDocument(documentId, { status });
-  }
-
-  /**
-   * Sets the configuration for a container, including filter prompts.
-   * @param containerTag The tag of the container.
-   * @param config The configuration object.
-   */
-  public async set_container_config(containerTag: string, config: { filterPrompt?: string | null }): Promise<void> {
-    // Assuming Neo4jClient will have a method to set container configuration.
-    // If this method does not exist, it will need to be added to Neo4jClient.
-    await this.neo4jClient.setContainerConfig(containerTag, config.filterPrompt);
-  }
-}
+      // Parallelize relation classification with concurrency limit
+      if (memoryIds.length > 0) {
+        const now = new Date().toISOString();
+        const createdMemories = memoryIds.map((id, index) => ({
+          id,
+          ...memoryInputs[index],
+          isLatest: true,
