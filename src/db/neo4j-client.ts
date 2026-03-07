@@ -154,14 +154,19 @@ export class Neo4jClient {
   /**
    * Retrieves the latest memories for a specific container.
    * @param containerTag The container tag to filter memories by.
-   * @param limit Maximum number of memories to retrieve (default: LIMIT_LATEST_MEMORIES).
+   * @param page 1-indexed page number (default: 1).
+   * @param pageSize Maximum number of memories per page (default: LIMIT_LATEST_MEMORIES).
    * @returns Array of memories ordered by creation date (newest first).
    */
   public async getLatestMemoriesByContainer(
     containerTag: string,
-    limit: number = LIMIT_LATEST_MEMORIES
+    page: number = 1,
+    pageSize: number = LIMIT_LATEST_MEMORIES
   ): Promise<Memory[]> {
     const session = this.driver.session();
+    const boundedPage = Math.max(1, Math.floor(page));
+    const boundedPageSize = Math.max(1, Math.floor(pageSize));
+    const skip = (boundedPage - 1) * boundedPageSize;
     try {
       const result = await session.run(
         `
@@ -169,11 +174,13 @@ export class Neo4jClient {
         WHERE m.isLatest = true OR m.isLatest IS NULL
         RETURN m
         ORDER BY m.createdAt DESC
+        SKIP $skip
         LIMIT $limit
         `,
-        { 
-          containerTag, 
-          limit: neo4j.int(limit) 
+        {
+          containerTag,
+          skip: neo4j.int(skip),
+          limit: neo4j.int(boundedPageSize),
         }
       );
 

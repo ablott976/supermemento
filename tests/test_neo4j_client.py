@@ -16,24 +16,27 @@ def test_limit_latest_memories_constant_is_100() -> None:
     assert "const LIMIT_LATEST_MEMORIES = 100;" in source
 
 
-def test_get_latest_memories_by_container_has_limit_parameter() -> None:
-    """Verify getLatestMemoriesByContainer accepts limit parameter with correct default."""
+def test_get_latest_memories_by_container_has_pagination_parameters() -> None:
+    """Verify getLatestMemoriesByContainer accepts pagination parameters with defaults."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "public async getLatestMemoriesByContainer(" in source
-    assert "limit: number = LIMIT_LATEST_MEMORIES" in source
+    assert "page: number = 1" in source
+    assert "pageSize: number = LIMIT_LATEST_MEMORIES" in source
 
 
-def test_get_latest_memories_by_container_uses_limit_in_cypher() -> None:
-    """Verify the Cypher query uses the limit parameter."""
+def test_get_latest_memories_by_container_uses_pagination_in_cypher() -> None:
+    """Verify the Cypher query uses SKIP and LIMIT for pagination."""
     source = _read(NEO4J_CLIENT_PATH)
+    assert "SKIP $skip" in source
     assert "LIMIT $limit" in source
 
 
-def test_get_latest_memories_by_container_passes_limit_to_session() -> None:
-    """Verify the limit value is passed to session.run parameters."""
+def test_get_latest_memories_by_container_passes_pagination_params_to_session() -> None:
+    """Verify pagination values are passed to session.run parameters."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "containerTag" in source
-    assert "limit: neo4j.int(limit)" in source
+    assert "skip: neo4j.int(skip)" in source
+    assert "limit: neo4j.int(boundedPageSize)" in source
 
 
 def test_get_latest_memories_by_container_handles_empty_container_results() -> None:
@@ -55,14 +58,16 @@ def test_get_latest_memories_by_container_remains_bounded_when_container_is_larg
     """Verify query remains bounded for containers with many active memories."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "const LIMIT_LATEST_MEMORIES = 100;" in source
-    assert "limit: number = LIMIT_LATEST_MEMORIES" in source
+    assert "pageSize: number = LIMIT_LATEST_MEMORIES" in source
     assert "ORDER BY m.createdAt DESC" in source
+    assert "SKIP $skip" in source
     assert "LIMIT $limit" in source
 
 
-def test_get_latest_memories_by_container_uses_parameterized_limit_instead_of_unbounded_query() -> None:
-    """Verify large limits are passed as a parameterized integer to Cypher."""
+def test_get_latest_memories_by_container_uses_parameterized_pagination_instead_of_unbounded_query() -> None:
+    """Verify pagination values are passed as parameterized integers to Cypher."""
     source = _read(NEO4J_CLIENT_PATH)
     assert "MATCH (m:Memory {containerTag: $containerTag})" in source
-    assert "limit: neo4j.int(limit)" in source
+    assert "skip: neo4j.int(skip)" in source
+    assert "limit: neo4j.int(boundedPageSize)" in source
     assert "LIMIT $limit" in source
