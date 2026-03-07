@@ -29,7 +29,6 @@ export class WebCrawlerConnector extends BaseConnector {
   public async fetch(): Promise<ConnectorDocument[]> {
     const extractor = new UrlExtractor();
     const docs: ConnectorDocument[] = [];
-
     for (const url of this.urls) {
       const content = await extractor.extract({
         id: "temp",
@@ -43,7 +42,6 @@ export class WebCrawlerConnector extends BaseConnector {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
-
       docs.push({
         title: url,
         content,
@@ -55,7 +53,6 @@ export class WebCrawlerConnector extends BaseConnector {
         }
       });
     }
-
     return docs;
   }
 
@@ -76,7 +73,10 @@ export class WebCrawlerConnector extends BaseConnector {
    * @param url URL to crawl.
    * @param containerTag Target container.
    */
-  public async crawlUrl(url: string, containerTag: string): Promise<{
+  public async crawlUrl(
+    url: string,
+    containerTag: string
+  ): Promise<{
     status: "ingested" | "skipped";
     documentId?: string;
   }> {
@@ -92,7 +92,7 @@ export class WebCrawlerConnector extends BaseConnector {
   }
 
   /**
-   * Crawls many URLs and ingests only changed content.
+   * Crawls many URLs and ingests only changed content with limited concurrency.
    * @param urls URL list.
    * @param containerTag Target container.
    */
@@ -106,57 +106,65 @@ export class WebCrawlerConnector extends BaseConnector {
     results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }>;
   }> {
     const extractor = new UrlExtractor();
+    const concurrencyLimit = 5;
     const results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }> = [];
 
-    for (const url of urls) {
-      const content = await extractor.extract({
-        id: "temp",
-        title: url,
-        contentType: ContentType.Url,
-        rawContent: "",
-        sourceUrl: url,
-        containerTag,
-        metadata: {},
-        status: DocumentStatus.Queued,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
+    // Process URLs in chunks to limit concurrency while using Promise.all for parallel processing within each chunk
+    for (let i = 0; i < urls.length; i += concurrencyLimit) {
+      const chunk = urls.slice(i, i + concurrencyLimit);
+      
+      const chunkPromises = chunk.map(async (url): Promise<{ url: string; status: "ingested" | "skipped"; documentId?: string }> => {
+        const content = await extractor.extract({
+          id: "temp",
+          title: url,
+          contentType: ContentType.Url,
+          rawContent: "",
+          sourceUrl: url,
+          containerTag,
+          metadata: {},
+          status: DocumentStatus.Queued,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
 
-      const doc: ConnectorDocument = {
-        title: url,
-        content,
-        containerTag,
-        sourceUrl: url,
-        metadata: {
-          crawledBy: "web_crawler",
-          fetchedAt: new Date().toISOString()
+        const doc: ConnectorDocument = {
+          title: url,
+          content,
+          containerTag,
+          sourceUrl: url,
+          metadata: {
+            crawledBy: "web_crawler",
+            fetchedAt: new Date().toISOString()
+          }
+        };
+
+        const dedup = await this.dedup(doc);
+        if (dedup.isDuplicate) {
+          return { url, status: "skipped" };
         }
-      };
 
-      const dedup = await this.dedup(doc);
-      if (dedup.isDuplicate) {
-        results.push({ url, status: "skipped" });
-        continue;
-      }
+        const ingestResult = await this.ingestionPipeline.ingest({
+          title: doc.title,
+          contentType: ContentType.Url,
+          rawContent: doc.content,
+          containerTag,
+          sourceUrl: doc.sourceUrl,
+          metadata: {
+            ...(doc.metadata ?? {}),
+            contentHash: dedup.contentHash,
+            lastCrawledAt: new Date().toISOString()
+          }
+        });
 
-      const ingestResult = await this.ingestionPipeline.ingest({
-        title: doc.title,
-        contentType: ContentType.Url,
-        rawContent: doc.content,
-        containerTag,
-        sourceUrl: doc.sourceUrl,
-        metadata: {
-          ...(doc.metadata ?? {}),
-          contentHash: dedup.contentHash,
-          lastCrawledAt: new Date().toISOString()
-        }
+        return {
+          url,
+          status: "ingested",
+          documentId: ingestResult.document.id
+        };
       });
 
-      results.push({
-        url,
-        status: "ingested",
-        documentId: ingestResult.document.id
-      });
+      const chunkResults = await Promise.all(chunkPromises);
+      results.push(...chunkResults);
     }
 
     const ingested = results.filter((item) => item.status === "ingested").length;
