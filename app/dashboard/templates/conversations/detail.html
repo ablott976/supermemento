@@ -1,0 +1,383 @@
+{% if conversation %}
+<div class="conversation-detail-tab">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Literata:opsz,wght@7..72,400;7..72,600&display=swap');
+
+        .conversation-detail-tab {
+            --paper: #f7efe4;
+            --ink: #111111;
+            --panel: #f2d9b8;
+            --accent: #db2b39;
+            --accent-soft: rgba(219, 43, 57, 0.15);
+            --muted: #5b4a3d;
+            position: relative;
+            padding: 1.5rem;
+            border: 2px solid var(--ink);
+            background:
+                linear-gradient(138deg, rgba(17, 17, 17, 0.04) 0%, transparent 36%),
+                radial-gradient(circle at 90% 12%, rgba(219, 43, 57, 0.24) 0%, transparent 38%),
+                repeating-linear-gradient(-13deg, rgba(17, 17, 17, 0.03), rgba(17, 17, 17, 0.03) 2px, transparent 2px, transparent 20px),
+                var(--paper);
+            overflow: hidden;
+        }
+
+        .conversation-detail-tab::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(150deg, transparent 0%, transparent 58%, var(--accent-soft) 100%);
+            opacity: 0.85;
+        }
+
+        .conversation-detail-tab > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .detail-header {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 1rem;
+            align-items: start;
+            margin-bottom: 1.1rem;
+        }
+
+        .detail-title {
+            margin: 0;
+            font-family: "Abril Fatface", serif;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            line-height: 0.95;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: var(--ink);
+            transform: rotate(-1deg);
+            max-width: 18ch;
+        }
+
+        .detail-subtitle {
+            margin: 0.4rem 0 0;
+            font-family: "Literata", serif;
+            font-size: 0.95rem;
+            color: var(--muted);
+            max-width: 58ch;
+        }
+
+        .detail-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        .detail-actions .btn {
+            border-width: 2px;
+            border-radius: 0;
+            font-family: "Literata", serif;
+            font-weight: 600;
+            transition: transform 180ms ease, box-shadow 180ms ease;
+        }
+
+        .detail-actions .btn:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 4px 4px 0 var(--ink);
+        }
+
+        .detail-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.7rem;
+            margin-bottom: 1.2rem;
+        }
+
+        .meta-chip {
+            border: 2px solid var(--ink);
+            padding: 0.6rem 0.7rem;
+            background: rgba(255, 255, 255, 0.62);
+            animation: reveal-card 420ms ease both;
+        }
+
+        .meta-chip:nth-child(2) {
+            animation-delay: 70ms;
+        }
+
+        .meta-chip:nth-child(3) {
+            animation-delay: 140ms;
+        }
+
+        .meta-chip:nth-child(4) {
+            animation-delay: 210ms;
+        }
+
+        .meta-label {
+            margin: 0;
+            font-family: "Literata", serif;
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+        }
+
+        .meta-value {
+            margin: 0.3rem 0 0;
+            font-family: "Literata", serif;
+            font-size: 0.96rem;
+            font-weight: 600;
+            color: var(--ink);
+            overflow-wrap: anywhere;
+        }
+
+        .detail-layout {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 1rem;
+            align-items: start;
+        }
+
+        .speaker-rail {
+            border: 2px solid var(--ink);
+            background: rgba(255, 255, 255, 0.55);
+            padding: 0.8rem;
+            position: sticky;
+            top: 0.6rem;
+        }
+
+        .speaker-rail h4 {
+            margin: 0 0 0.65rem;
+            font-family: "Abril Fatface", serif;
+            font-size: 1.15rem;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+
+        .speaker-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .speaker-item {
+            border: 1px solid var(--ink);
+            background: var(--panel);
+            padding: 0.4rem 0.45rem;
+            font-family: "Literata", serif;
+            font-size: 0.84rem;
+            overflow-wrap: anywhere;
+        }
+
+        .messages-stage {
+            border: 2px solid var(--ink);
+            background: rgba(255, 255, 255, 0.68);
+            padding: 0.9rem;
+        }
+
+        .messages-stage h4 {
+            margin: 0 0 0.75rem;
+            font-family: "Abril Fatface", serif;
+            font-size: 1.3rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            transform: rotate(-0.6deg);
+        }
+
+        .message-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .message-item {
+            border: 1px solid rgba(17, 17, 17, 0.35);
+            background: rgba(255, 255, 255, 0.8);
+            padding: 0.75rem;
+            animation: reveal-row 360ms ease both;
+        }
+
+        {% for message in (conversation.messages or messages or []) %}
+        .message-item:nth-child({{ loop.index }}) {
+            animation-delay: {{ loop.index0 * 60 }}ms;
+        }
+        {% endfor %}
+
+        .message-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 0.65rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .message-speaker {
+            margin: 0;
+            font-family: "Literata", serif;
+            font-size: 0.86rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+        }
+
+        .message-time {
+            margin: 0;
+            font-family: "Literata", serif;
+            font-size: 0.8rem;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .message-body {
+            margin: 0;
+            font-family: "Literata", serif;
+            font-size: 0.96rem;
+            line-height: 1.5;
+            color: var(--ink);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        @keyframes reveal-card {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes reveal-row {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 980px) {
+            .detail-meta-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .detail-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .speaker-rail {
+                position: static;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .conversation-detail-tab {
+                padding: 1rem;
+            }
+
+            .detail-header {
+                grid-template-columns: 1fr;
+            }
+
+            .detail-actions {
+                justify-content: flex-start;
+            }
+
+            .detail-meta-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+
+    <div class="detail-header" data-conversation-id="{{ conversation.id }}">
+        <div>
+            <h3 class="detail-title">{{ conversation.title or conversation.subject or 'Conversation Detail' }}</h3>
+            <p class="detail-subtitle">{{ conversation.preview or conversation.summary or 'A complete line-by-line view of this thread, including participants and timing.' }}</p>
+        </div>
+        <div class="detail-actions">
+            <button class="btn btn-secondary" id="back-to-conversations">
+                <span class="icon">←</span> Back
+            </button>
+            <button class="btn btn-warning" data-action="pin-conversation" data-conversation="{{ conversation.id }}">
+                <span class="icon">📌</span> Pin
+            </button>
+            <button class="btn btn-primary" data-action="reply-conversation" data-conversation="{{ conversation.id }}">
+                <span class="icon">✎</span> Reply
+            </button>
+        </div>
+    </div>
+
+    <div class="detail-meta-grid">
+        <article class="meta-chip">
+            <p class="meta-label">Owner</p>
+            <p class="meta-value">{{ conversation.owner or conversation.user_name or conversation.user or 'Unknown' }}</p>
+        </article>
+        <article class="meta-chip">
+            <p class="meta-label">Status</p>
+            <p class="meta-value">{{ conversation.status or 'active' }}</p>
+        </article>
+        <article class="meta-chip">
+            <p class="meta-label">Last Activity</p>
+            <p class="meta-value">{{ conversation.updated_at or conversation.last_activity or '—' }}</p>
+        </article>
+        <article class="meta-chip">
+            <p class="meta-label">Messages</p>
+            <p class="meta-value">
+                {{ conversation.message_count or (conversation.messages|length if conversation.messages else (messages|length if messages else 0)) }}
+            </p>
+        </article>
+    </div>
+
+    {% set thread_messages = conversation.messages or messages or [] %}
+    <div class="detail-layout">
+        <aside class="speaker-rail">
+            <h4>Participants</h4>
+            <ul class="speaker-list">
+                {% if conversation.participants %}
+                    {% for participant in conversation.participants %}
+                    <li class="speaker-item">{{ participant.name or participant.username or participant }}</li>
+                    {% endfor %}
+                {% else %}
+                    {% for message in thread_messages %}
+                    <li class="speaker-item">{{ message.speaker or message.role or message.author or 'Unknown' }}</li>
+                    {% endfor %}
+                {% endif %}
+            </ul>
+        </aside>
+
+        <section class="messages-stage">
+            <h4>Thread Timeline</h4>
+            <ol class="message-list">
+                {% for message in thread_messages %}
+                <li class="message-item" data-message-id="{{ message.id or loop.index }}">
+                    <div class="message-head">
+                        <p class="message-speaker">{{ message.speaker or message.role or message.author or 'Unknown' }}</p>
+                        <p class="message-time">{{ message.timestamp or message.created_at or '—' }}</p>
+                    </div>
+                    <p class="message-body">{{ message.content or message.message or message.text or '' }}</p>
+                </li>
+                {% else %}
+                <li class="message-item">
+                    <div class="message-head">
+                        <p class="message-speaker">System</p>
+                        <p class="message-time">Now</p>
+                    </div>
+                    <p class="message-body">No messages available for this conversation.</p>
+                </li>
+                {% endfor %}
+            </ol>
+        </section>
+    </div>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">🧵</div>
+    <h3>No Conversation Selected</h3>
+    <p>Pick a thread from the conversation list to inspect its full timeline.</p>
+    <button class="btn btn-primary" id="open-conversation-list">Open Conversations</button>
+</div>
+{% endif %}
