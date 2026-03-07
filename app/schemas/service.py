@@ -27,3 +27,16 @@ class AssignServiceRequest(BaseModel):
     
     class Config:
         populate_by_name = True
+
+
+class ClientServiceResponse(BaseModel):
+    """Response schema for client service assignments."""
+
+    service_id: str = Field(..., alias="serviceId")
+    container_tag: str | None = Field(default=None, alias="containerTag")
+    user_id: str | None = Field(default=None, alias="userId")
+    status: str
+    metadata: dict[str, str] | None = None
+
+    class Config:
+        populate_by_name = True
