@@ -46,8 +46,10 @@ class Semaphore {
 
   release(): void {
     if (this.resolvers.length > 0) {
-      const resolve = this.resolvers.shift()!;
-      resolve();
+      const resolve = this.resolvers.shift();
+      if (resolve) {
+        resolve();
+      }
     } else {
       this.permits++;
     }
@@ -57,7 +59,7 @@ class Semaphore {
 /**
  * Execute async function over items with limited concurrency.
  * Replaces sequential loops (for...await) with parallel execution while respecting resource constraints.
- * 
+ *
  * @param items Items to process
  * @param asyncFunc Async function to apply to each item
  * @param maxConcurrency Maximum number of concurrent operations
@@ -84,7 +86,7 @@ export async function gatherWithLimit<T, R>(
 
 /**
  * Split sequence into chunks of specified size.
- * 
+ *
  * @param items Items to chunk
  * @param chunkSize Maximum size of each chunk
  * @returns List of chunks
@@ -103,7 +105,7 @@ export function chunkList<T>(items: readonly T[], chunkSize: number): T[][] {
 /**
  * Process items in batches.
  * Useful for database batch operations (e.g., Neo4j UNWIND).
- * 
+ *
  * @param items Items to process
  * @param batchProcessor Async function that processes a batch of items
  * @param batchSize Size of each batch
@@ -142,7 +144,7 @@ export async function parallelExtractMemories(
     chunks,
     async (chunk) =>
       memoryExtractorService.extractFromChunk(chunk.content, {
-        filterPrompt: filterPrompt ?? null,
+        filterPrompt: filterPrompt ?? null
       }),
     maxConcurrency
   );
@@ -153,7 +155,7 @@ export async function parallelExtractMemories(
 /**
  * Batch create memories using Neo4j UNWIND for optimal performance.
  * Creates multiple Memory nodes and their relationships to source documents in a single query.
- * 
+ *
  * @param neo4jClient Neo4j client instance
  * @param memories Array of memory data to create
  * @returns Array of created memory IDs
@@ -182,7 +184,7 @@ export async function batchCreateMemories(
     validFrom: memory.validFrom ?? null,
     validTo: memory.validTo ?? null,
     createdAt: now,
-    updatedAt: now,
+    updatedAt: now
   }));
 
   try {
@@ -245,4 +247,64 @@ export async function batchClassifyRelations<TMemory, TResult>(
   );
 
   return resultsPerBatch.flat() as TResult[];
+}
+
+export type BatchOptions = {
+  concurrency?: number;
+};
+
+/**
+ * Splits an array into fixed-size batches.
+ */
+export function chunkIntoBatches<T>(items: T[], batchSize: number): T[][] {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new Error("batchSize must be a positive integer");
+  }
+
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    batches.push(items.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+/**
+ * Maps an array concurrently while preserving input order.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  mapper: (item: T, index: number) => Promise<R>,
+  options: BatchOptions = {}
+): Promise<R[]> {
+  const concurrency = options.concurrency ?? 5;
+
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error("concurrency must be a positive integer");
+  }
+
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+
+      if (current >= items.length) {
+        return;
+      }
+
+      // Preserve result ordering based on source index.
+      results[current] = await mapper(items[current] as T, current);
+    }
+  };
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return results;
 }
