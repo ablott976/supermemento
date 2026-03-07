@@ -90,6 +90,16 @@ Variable reference:
 - `ANTHROPIC_MODEL` optional model override (default: `claude-haiku-4-5-20251001`)
 - `OPENAI_EMBEDDING_MODEL` optional embedding model override (default: `text-embedding-3-large`)
 
+Load the variables into your current shell session before running the local scripts:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Without this export step, `npm run setup:schema` and `npm run dev` will fail because they read from `process.env`.
+
 ### 3. Start Neo4j
 
 Run Neo4j locally with Docker Compose:

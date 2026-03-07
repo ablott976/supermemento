@@ -13,7 +13,7 @@
 
 Este documento define la arquitectura completa de Memento v2.0, una evolución del sistema actual de knowledge graph basado en Neo4j/MCP hacia una plataforma de memoria inteligente para agentes de IA. El objetivo es replicar y en algunos casos superar las capacidades de Supermemory.ai, manteniendo las ventajas fundamentales de nuestro sistema: control total, soberanía de datos, y transparencia del grafo.
 
-Para configurar el entorno de desarrollo local (instalación de dependencias, variables de entorno, inicialización del schema de Neo4j y ejecución en modo desarrollo), ver la sección [Getting Started](../README.md#getting-started) en el README.
+Para configurar el entorno de desarrollo local (instalación de dependencias, variables de entorno, export de variables al shell, inicialización del schema de Neo4j y ejecución en modo desarrollo), ver la sección [Getting Started](../README.md#getting-started) en el README.
 
 ### 1.1 Objetivo
 Transformar Memento de un knowledge graph estático con escritura manual a un sistema de memoria dinámico que:
