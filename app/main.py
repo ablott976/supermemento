@@ -93,7 +93,7 @@ async def create_item(item: Item):
     counter += 1
     item.id = counter
     items_db[counter] = item
-    logger.info(f"Created item with id {counter}")
+    logger.info("Created item with id %s", counter)
     return item
 
 
@@ -129,7 +129,7 @@ async def update_item(item_id: int, item_update: ItemUpdate):
     update_data = item_update.model_dump(exclude_unset=True)
     updated_item = stored_item.model_copy(update=update_data)
     items_db[item_id] = updated_item
-    logger.info(f"Updated item with id {item_id}")
+    logger.info("Updated item with id %s", item_id)
     return updated_item
 
 
@@ -142,5 +142,5 @@ async def delete_item(item_id: int):
             detail=f"Item with id {item_id} not found",
         )
     del items_db[item_id]
-    logger.info(f"Deleted item with id {item_id}")
+    logger.info("Deleted item with id %s", item_id)
     return None

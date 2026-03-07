@@ -121,10 +121,9 @@ const updateMemoryArgsSchema = z.object({
 async function main() {
   const config = await loadConfig();
   const neo4jClient = new Neo4jClient(config.neo4j);
-  
   await neo4jClient.connect();
   await setupSchema(neo4jClient);
-  
+
   const embeddingService = new EmbeddingService(config.embeddings);
   const forgettingService = new ForgettingService(neo4jClient);
   const memoryExtractor = new MemoryExtractorService(embeddingService);
@@ -155,32 +154,32 @@ async function main() {
       tools: [
         {
           name: "create_memory",
-          description: "Create a new memory in the system",
+          description: "Create a new memory entry with optional temporal bounds and confidence score",
           inputSchema: zodToJsonSchema(createMemoryArgsSchema) as any,
         },
         {
           name: "semantic_search",
-          description: "Search for memories using semantic similarity",
+          description: "Search memories and documents using semantic similarity with optional reranking and query rewriting",
           inputSchema: zodToJsonSchema(semanticSearchArgsSchema) as any,
         },
         {
           name: "create_document",
-          description: "Create a new document",
+          description: "Create a new document entry",
           inputSchema: zodToJsonSchema(createDocumentArgsSchema) as any,
         },
         {
           name: "ingest_document",
-          description: "Ingest content as a document",
+          description: "Ingest raw content and process it through the pipeline",
           inputSchema: zodToJsonSchema(ingestDocumentArgsSchema) as any,
         },
         {
           name: "ingest_url",
-          description: "Ingest content from a URL",
+          description: "Crawl a URL and ingest its content",
           inputSchema: zodToJsonSchema(ingestUrlArgsSchema) as any,
         },
         {
           name: "ingest_conversation",
-          description: "Ingest a conversation",
+          description: "Ingest a conversation transcript",
           inputSchema: zodToJsonSchema(ingestConversationArgsSchema) as any,
         },
         {
@@ -190,32 +189,32 @@ async function main() {
         },
         {
           name: "delete_document",
-          description: "Delete a document and its associated data",
+          description: "Delete a document and its associated memories",
           inputSchema: zodToJsonSchema(deleteDocumentArgsSchema) as any,
         },
         {
           name: "update_document",
-          description: "Update a document's metadata or content",
+          description: "Update document metadata, content, or status",
           inputSchema: zodToJsonSchema(updateDocumentArgsSchema) as any,
         },
         {
           name: "list_documents",
-          description: "List documents with optional filtering",
+          description: "List documents with optional filtering by container tag and status. Returns documents with metadata including processing status.",
           inputSchema: zodToJsonSchema(listDocumentsArgsSchema) as any,
         },
         {
           name: "list_memories",
-          description: "List memories with optional filtering",
+          description: "List memories with optional filtering by container tag, memory type, and latest status. Returns memories with content, metadata, and relationships.",
           inputSchema: zodToJsonSchema(listMemoriesArgsSchema) as any,
         },
         {
           name: "delete_memory",
-          description: "Delete a memory",
+          description: "Delete a specific memory by ID",
           inputSchema: zodToJsonSchema(deleteMemoryArgsSchema) as any,
         },
         {
           name: "update_memory",
-          description: "Update a memory's content or metadata",
+          description: "Update memory content, type, or metadata",
           inputSchema: zodToJsonSchema(updateMemoryArgsSchema) as any,
         },
       ],
@@ -229,9 +228,9 @@ async function main() {
       switch (name) {
         case "create_memory": {
           const parsed = createMemoryArgsSchema.parse(args);
-          const result = await neo4jClient.createMemory(parsed);
+          const memory = await neo4jClient.createMemory(parsed);
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: JSON.stringify(memory, null, 2) }],
           };
         }
 
@@ -239,4 +238,198 @@ async function main() {
           const parsed = semanticSearchArgsSchema.parse(args);
           const results = await searchService.semanticSearch(parsed);
           return {
-            content: [{ type: "text", text: JSON.stringify(results, null,
+            content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+          };
+        }
+
+        case "create_document": {
+          const parsed = createDocumentArgsSchema.parse(args);
+          const doc = await neo4jClient.createDocument(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
+          };
+        }
+
+        case "ingest_document": {
+          const parsed = ingestDocumentArgsSchema.parse(args);
+          const result = await ingestionPipeline.ingestText(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case "ingest_url": {
+          const parsed = ingestUrlArgsSchema.parse(args);
+          const crawled = await webCrawler.crawl(parsed.url);
+          const result = await ingestionPipeline.ingestText({
+            content: crawled.content,
+            contentType: ContentType.TEXT,
+            containerTag: parsed.containerTag,
+            title: parsed.title || crawled.title,
+            metadata: { ...parsed.metadata, sourceUrl: parsed.url },
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case "ingest_conversation": {
+          const parsed = ingestConversationArgsSchema.parse(args);
+          const result = await ingestionPipeline.ingestConversation(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case "get_document_status": {
+          const parsed = getDocumentStatusArgsSchema.parse(args);
+          const status = await neo4jClient.getDocumentStatus(parsed.documentId);
+          return {
+            content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+          };
+        }
+
+        case "delete_document": {
+          const parsed = deleteDocumentArgsSchema.parse(args);
+          await neo4jClient.deleteDocument(parsed.documentId);
+          return {
+            content: [{ type: "text", text: JSON.stringify({ success: true, message: "Document deleted successfully" }, null, 2) }],
+          };
+        }
+
+        case "update_document": {
+          const parsed = updateDocumentArgsSchema.parse(args);
+          const updated = await neo4jClient.updateDocument(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(updated, null, 2) }],
+          };
+        }
+
+        case "list_documents": {
+          const parsed = listDocumentsArgsSchema.parse(args);
+          const documents = await searchService.listDocuments({
+            containerTag: parsed.containerTag,
+            status: parsed.status,
+            limit: parsed.limit,
+          });
+          
+          // Format response with clear structure and metadata
+          const response = {
+            count: documents.length,
+            documents: documents.map(doc => ({
+              id: doc.id,
+              title: doc.title,
+              contentType: doc.contentType,
+              status: doc.status,
+              containerTag: doc.containerTag,
+              createdAt: doc.createdAt,
+              updatedAt: doc.updatedAt,
+              metadata: doc.metadata,
+              sourceUrl: doc.sourceUrl,
+              filePath: doc.filePath,
+            })),
+          };
+          
+          return {
+            content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+          };
+        }
+
+        case "list_memories": {
+          const parsed = listMemoriesArgsSchema.parse(args);
+          const memories = await searchService.listMemories({
+            containerTag: parsed.containerTag,
+            memoryType: parsed.memoryType,
+            isLatest: parsed.isLatest,
+            limit: parsed.limit,
+          });
+          
+          // Format response with clear structure including relationships and metadata
+          const response = {
+            count: memories.length,
+            memories: memories.map(memory => ({
+              id: memory.id,
+              content: memory.content,
+              memoryType: memory.memoryType,
+              containerTag: memory.containerTag,
+              confidence: memory.confidence,
+              isLatest: memory.isLatest,
+              validFrom: memory.validFrom,
+              validTo: memory.validTo,
+              createdAt: memory.createdAt,
+              updatedAt: memory.updatedAt,
+              sourceDocId: memory.sourceDocId,
+              relationships: memory.relationships || [],
+              metadata: memory.metadata,
+            })),
+          };
+          
+          return {
+            content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+          };
+        }
+
+        case "delete_memory": {
+          const parsed = deleteMemoryArgsSchema.parse(args);
+          await neo4jClient.deleteMemory(parsed.memoryId);
+          return {
+            content: [{ type: "text", text: JSON.stringify({ success: true, message: "Memory deleted successfully" }, null, 2) }],
+          };
+        }
+
+        case "update_memory": {
+          const parsed = updateMemoryArgsSchema.parse(args);
+          const updated = await neo4jClient.updateMemory(parsed);
+          return {
+            content: [{ type: "text", text: JSON.stringify(updated, null, 2) }],
+          };
+        }
+
+        default:
+          return {
+            content: [{ type: "text", text: `Unknown tool: ${name}` }],
+            isError: true,
+          };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text", text: `Error: ${errorMessage}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // Determine transport type from environment or default to stdio
+  const transportType = process.env.MCP_TRANSPORT || "stdio";
+
+  if (transportType === "sse") {
+    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      if (req.url === "/sse") {
+        const transport = new SSEServerTransport("/messages", res);
+        await server.connect(transport);
+      } else if (req.url === "/messages" && req.method === "POST") {
+        // Messages endpoint handled by SSE transport
+        res.statusCode = 200;
+        res.end();
+      } else {
+        res.statusCode = 404;
+        res.end();
+      }
+    });
+
+    const port = parseInt(process.env.PORT || "3000", 10);
+    httpServer.listen(port, () => {
+      console.error(`Memory MCP Server running on port ${port}`);
+    });
+  } else {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("Memory MCP Server running on stdio");
+  }
+}
+
+main().catch((error) => {
+  console.error("Fatal error:", error);
+  process.exit(1);
+});
