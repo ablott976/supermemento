@@ -260,6 +260,26 @@ test("parallelExtractMemories flattens results in chunk order and passes filterP
   );
 });
 
+test("parallelExtractMemories passes null filterPrompt when omitted", async () => {
+  const chunks: ChunkPayload[] = [{ content: "chunk-a", chunkIndex: 0, metadata: {} }];
+  const seenFilterPrompts: Array<string | null | undefined> = [];
+
+  const memoryExtractorService = {
+    extractFromChunk: async (
+      _chunkText: string,
+      options?: { filterPrompt?: string | null }
+    ): Promise<ExtractedMemory[]> => {
+      seenFilterPrompts.push(options?.filterPrompt);
+      return [];
+    },
+  };
+
+  const result = await parallelExtractMemories(chunks, memoryExtractorService as never);
+
+  assert.deepEqual(result, []);
+  assert.deepEqual(seenFilterPrompts, [null]);
+});
+
 test("parallelExtractMemories respects maxConcurrency", async () => {
   const chunks: ChunkPayload[] = Array.from({ length: 6 }, (_, index) => ({
     content: `chunk-${index}`,
