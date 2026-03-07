@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.service import (
     AssignServiceRequest,
     ClientServiceResponse,
+    ClientServiceUpdate,
     ServiceResponse,
 )
 from app.services.service_catalog import ServiceCatalogService
@@ -43,5 +44,22 @@ async def assign_service_to_client(
     """Assign a service to a client."""
     try:
         return await service_catalog.assign_service_to_client(id, service_assignment)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put(
+    "/api/clients/{id}/services/{sid}",
+    response_model=ClientServiceResponse,
+)
+async def update_client_service(
+    id: str,
+    sid: str,
+    service_update: ClientServiceUpdate,
+    service_catalog: Annotated[ServiceCatalogService, Depends(get_service_catalog)],
+) -> ClientServiceResponse:
+    """Update a service assignment for a client."""
+    try:
+        return await service_catalog.update_client_service(id, sid, service_update)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
