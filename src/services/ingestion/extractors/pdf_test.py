@@ -1,7 +1,9 @@
-import pytest
 from pathlib import Path
-from src.services.ingestion.extractors.pdf_extractor import PdfExtractor
+
+import pytest
 from src.types.models import Document
+
+from src.services.ingestion.extractors.pdf_extractor import PdfExtractor
 from src.types.enums import ContentType, DocumentStatus
 
 

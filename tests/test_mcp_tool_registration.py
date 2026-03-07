@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NEO4J_CLIENT_PATH = REPO_ROOT / "src" / "db" / "neo4j-client.ts"
 SERVER_PATH = REPO_ROOT / "src" / "server.ts"

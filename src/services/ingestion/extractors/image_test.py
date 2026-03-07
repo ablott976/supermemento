@@ -1,9 +1,11 @@
 import base64
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from src.services.ingestion.extractors.image import ImageExtractor
 from src.types.models import Document
+
 from src.types.enums import ContentType, DocumentStatus
 
 

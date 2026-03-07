@@ -1,9 +1,11 @@
 import asyncio
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
-from src.services.ingestion.processor import process_urls_parallel, URLProcessingResult
+
+import pytest
+from src.services.ingestion.processor import URLProcessingResult, process_urls_parallel
 from src.types.models import Document
+
 from src.types.enums import ContentType, DocumentStatus
 
 

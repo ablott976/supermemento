@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.calculator import add, subtract, multiply, divide, DivisionByZeroError
+from app.calculator import DivisionByZeroError, add, divide, multiply, subtract
 
 
 class TestAdd:

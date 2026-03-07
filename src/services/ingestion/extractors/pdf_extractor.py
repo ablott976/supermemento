@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from pypdf import PdfReader
+from src.types.models import Document
 
 from .base import Extractor
-from src.types.models import Document
 
 
 class PdfExtractor(Extractor):
