@@ -200,13 +200,77 @@ def get_chatbot_config() -> dict[str, Any]:
         Dictionary containing chatbot configuration settings.
     """
     try:
+        chatbot_status = "active"
+        status_indicator = {
+            "value": chatbot_status,
+            "label": "Active",
+            "color": "green",
+        }
+        knowledge_file = {
+            "name": "support-knowledge-base.pdf",
+            "size": "2.4 MB",
+            "last_updated": "2024-01-12T14:30:00",
+            "status": "indexed",
+        }
         config = {
+            "id": 1,
+            "name": "Support Assistant",
+            "description": "Handles customer support questions for dashboard users.",
+            "status": chatbot_status,
             "model": "gpt-4",
             "temperature": 0.7,
             "max_tokens": 150,
+            "timeout": 30,
             "system_prompt": "You are a helpful assistant.",
+            "streaming": True,
+            "context_retention": True,
+            "context_window": 10,
+            "knowledge_file": knowledge_file,
+            "status_indicator": status_indicator,
         }
         return jsonify({"config": config, "status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "error"}), 500
+
+
+@dashboard_bp.route("/chatbot-config/tab", methods=["GET"])
+def chatbot_config_tab() -> Any:
+    """Render chatbot configuration tab with chatbot fields and status details."""
+    try:
+        chatbot_status = "active"
+        status_indicator = {
+            "value": chatbot_status,
+            "label": "Active",
+            "color": "green",
+        }
+        knowledge_file = {
+            "name": "support-knowledge-base.pdf",
+            "size": "2.4 MB",
+            "last_updated": "2024-01-12T14:30:00",
+            "status": "indexed",
+        }
+        chatbot = {
+            "id": 1,
+            "name": "Support Assistant",
+            "description": "Handles customer support questions for dashboard users.",
+            "status": chatbot_status,
+            "model": "gpt-4",
+            "temperature": 0.7,
+            "max_tokens": 150,
+            "timeout": 30,
+            "system_prompt": "You are a helpful assistant.",
+            "streaming": True,
+            "context_retention": True,
+            "context_window": 10,
+            "knowledge_file": knowledge_file,
+            "status_indicator": status_indicator,
+        }
+        return render_template(
+            "chatbots/config.html",
+            chatbot=chatbot,
+            knowledge_file=knowledge_file,
+            status_indicator=status_indicator,
+        )
     except Exception as e:
         return jsonify({"error": str(e), "status": "error"}), 500
 
@@ -232,10 +296,20 @@ def update_chatbot_config() -> tuple[dict[str, Any], int]:
                 raise ValueError(f"Missing required field: {field}")
         
         updated_config = {
+            "id": data.get("id", 1),
+            "name": data.get("name", "Support Assistant"),
+            "description": data.get("description", ""),
+            "status": data.get("status", "active"),
             "model": data["model"],
             "temperature": float(data["temperature"]),
             "max_tokens": data.get("max_tokens", 150),
+            "timeout": data.get("timeout", 30),
             "system_prompt": data.get("system_prompt", ""),
+            "streaming": data.get("streaming", True),
+            "context_retention": data.get("context_retention", True),
+            "context_window": data.get("context_window", 10),
+            "knowledge_file": data.get("knowledge_file"),
+            "status_indicator": data.get("status_indicator"),
         }
         return jsonify({"config": updated_config, "status": "success"})
     except ValueError as e:
