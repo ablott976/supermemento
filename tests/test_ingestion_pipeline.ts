@@ -397,3 +397,29 @@ test("batchClassifyRelations rejects when any classification batch fails", async
     /llm classification failed/
   );
 });
+
+test("batchClassifyRelations validates batchSize", async () => {
+  const classifier = async (batch: readonly string[]) => batch;
+
+  await assert.rejects(
+    batchClassifyRelations(["m1"], classifier, 0, 1),
+    /batchSize must be a positive integer/
+  );
+  await assert.rejects(
+    batchClassifyRelations(["m1"], classifier, 1.5, 1),
+    /batchSize must be a positive integer/
+  );
+});
+
+test("batchClassifyRelations validates maxConcurrency", async () => {
+  const classifier = async (batch: readonly string[]) => batch;
+
+  await assert.rejects(
+    batchClassifyRelations(["m1"], classifier, 1, 0),
+    /maxConcurrency must be a positive integer/
+  );
+  await assert.rejects(
+    batchClassifyRelations(["m1"], classifier, 1, 1.5),
+    /maxConcurrency must be a positive integer/
+  );
+});
