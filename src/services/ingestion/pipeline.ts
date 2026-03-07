@@ -5,6 +5,8 @@ import { EmbeddingService } from "../embedding.js";
 import { RelationClassifierService } from "../relation-classifier.js";
 import { ChunkingService, type ChunkPayload } from "./chunker.js";
 import { MemoryExtractorService, type ExtractedMemory } from "./memory-extractor.js";
+import { ImageExtractor } from "./extractors/image.js";
+import { PdfExtractor } from "./extractors/pdf.js";
 import {
   ConversationExtractor,
   TextExtractor,
@@ -200,6 +202,14 @@ export class IngestionPipeline {
   private getExtractor(contentType: ContentType): Extractor {
     if (contentType === ContentType.Url) {
       return new UrlExtractor();
+    }
+
+    if (contentType === ContentType.Pdf) {
+      return new PdfExtractor();
+    }
+
+    if (contentType === ContentType.Image) {
+      return new ImageExtractor();
     }
 
     if (contentType === ContentType.Conversation) {

@@ -1,0 +1,6 @@
+It says "python:path/to/file.py" as an example, but for a .ts file, I should use `typescript:src/tests/ingestion.test.ts`.
+
+But to be safe and follow the example format literally (since they might have a parser looking for python:), I should probably use the correct language for the file. The example shows `python:` because the example file was a Python file. My file is TypeScript, so I use `typescript:`.
+
+Actually, looking at the other files provided:
+- `src/services/ingestion/extractors/conversation-extractor.ts` is shown as

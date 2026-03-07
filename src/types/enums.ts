@@ -1,4 +1,15 @@
-/** Supported content types for a source document. */
+/**
+ * Supported content types for a source document.
+ * 
+ * Each content type is handled by a specific extractor in src/services/ingestion/extractors:
+ * - Text: TextExtractor - Plain text content
+ * - Url: UrlExtractor - Web content from URLs  
+ * - Pdf: PdfExtractor - PDF document text extraction
+ * - Image: ImageExtractor - OCR and image analysis (planned)
+ * - Video: VideoExtractor - Video transcription (planned)
+ * - Audio: AudioExtractor - Audio transcription (planned)
+ * - Conversation: ConversationExtractor - Chat/conversation formats
+ */
 export enum ContentType {
   Text = "text",
   Url = "url",
