@@ -59,7 +59,7 @@ describe('Ingestion API - Container Config', () => {
   // Test Case 3: Bad request - missing containerId
   test('POST /api/ingestion/container-config - should return 400 if containerId is missing', async () => {
     const filterPrompt = 'Summarize the content.';
-
+    
     const response = await request(app)
       .post('/api/ingestion/container-config')
       .send({ filterPrompt }); // containerId is missing
@@ -73,7 +73,7 @@ describe('Ingestion API - Container Config', () => {
   test('POST /api/ingestion/container-config - should return 400 if containerId is not a string', async () => {
     const containerId = 12345; // Invalid type
     const filterPrompt = 'Summarize the content.';
-
+    
     const response = await request(app)
       .post('/api/ingestion/container-config')
       .send({ containerId, filterPrompt });
@@ -87,7 +87,7 @@ describe('Ingestion API - Container Config', () => {
   test('POST /api/ingestion/container-config - should return 400 if filterPrompt is provided but not a string', async () => {
     const containerId = 'test-container-789';
     const filterPrompt = 12345; // Invalid type
-
+    
     const response = await request(app)
       .post('/api/ingestion/container-config')
       .send({ containerId, filterPrompt });
@@ -112,169 +112,173 @@ describe('Ingestion API - Container Config', () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ message: 'Failed to set container configuration.', error: errorMessage });
     expect(set_container_config).toHaveBeenCalledTimes(1);
+    expect(set_container_config).toHaveBeenCalledWith(containerId, filterPrompt);
   });
 });
 
-describe('Filtered Vector Search API', () => {
+describe('Ingestion API - Filtered Vector Search', () => {
   // Reset mocks before each test
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   // Test Case 1: Successful filtered vector search with all parameters
-  test('POST /api/search/vector - should perform filtered vector search successfully with query, filters, and topK', async () => {
-    const query = 'machine learning';
-    const filters = { containerId: 'container-123', tags: ['ai', 'ml'] };
-    const topK = 5;
+  test('POST /api/ingestion/filtered-vector-search - should perform search successfully with filters', async () => {
     const mockResults = [
-      { id: 'doc-1', score: 0.95, content: 'Introduction to ML', metadata: { containerId: 'container-123' } },
-      { id: 'doc-2', score: 0.87, content: 'Deep Learning Basics', metadata: { containerId: 'container-123' } }
+      { id: 'doc-1', score: 0.95, content: 'Test content 1', metadata: { status: 'active' } },
+      { id: 'doc-2', score: 0.85, content: 'Test content 2', metadata: { status: 'active' } },
     ];
-
-    filteredVectorSearch.mockResolvedValue(mockResults);
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query, filters, topK });
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ results: mockResults });
-    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(query, filters, topK);
-  });
-
-  // Test Case 2: Successful search with only query (no filters)
-  test('POST /api/search/vector - should perform search with query only', async () => {
-    const query = 'neural networks';
-    const mockResults = [
-      { id: 'doc-3', score: 0.92, content: 'Neural Networks 101', metadata: {} }
-    ];
-
-    filteredVectorSearch.mockResolvedValue(mockResults);
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query });
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ results: mockResults });
-    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(query, undefined, undefined);
-  });
-
-  // Test Case 3: Successful search with query and filters but no topK
-  test('POST /api/search/vector - should perform search with query and filters using default topK', async () => {
-    const query = 'data science';
-    const filters = { containerId: 'container-456' };
-    const mockResults = [
-      { id: 'doc-4', score: 0.88, content: 'Data Science Overview', metadata: { containerId: 'container-456' } }
-    ];
-
-    filteredVectorSearch.mockResolvedValue(mockResults);
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query, filters });
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ results: mockResults });
-    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
-    expect(filteredVectorSearch).toHaveBeenCalledWith(query, filters, undefined);
-  });
-
-  // Test Case 4: Bad request - missing query
-  test('POST /api/search/vector - should return 400 if query is missing', async () => {
-    const filters = { containerId: 'container-123' };
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ filters });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'Query is required and must be a string.' });
-    expect(filteredVectorSearch).not.toHaveBeenCalled();
-  });
-
-  // Test Case 5: Bad request - invalid query type
-  test('POST /api/search/vector - should return 400 if query is not a string', async () => {
-    const query = 12345; // Invalid type
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'Query is required and must be a string.' });
-    expect(filteredVectorSearch).not.toHaveBeenCalled();
-  });
-
-  // Test Case 6: Bad request - invalid filters type
-  test('POST /api/search/vector - should return 400 if filters is not an object', async () => {
-    const query = 'test query';
-    const filters = 'invalid-filters'; // Should be object
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query, filters });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'Filters must be an object if provided.' });
-    expect(filteredVectorSearch).not.toHaveBeenCalled();
-  });
-
-  // Test Case 7: Bad request - invalid topK type
-  test('POST /api/search/vector - should return 400 if topK is not a number', async () => {
-    const query = 'test query';
-    const topK = 'ten'; // Invalid type
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query, topK });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'topK must be a positive integer if provided.' });
-    expect(filteredVectorSearch).not.toHaveBeenCalled();
-  });
-
-  // Test Case 8: Bad request - negative topK
-  test('POST /api/search/vector - should return 400 if topK is negative', async () => {
-    const query = 'test query';
-    const topK = -5;
-
-    const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query, topK });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'topK must be a positive integer if provided.' });
-    expect(filteredVectorSearch).not.toHaveBeenCalled();
-  });
-
-  // Test Case 9: Error handling - filteredVectorSearch throws an error
-  test('POST /api/search/vector - should return 500 if vector search fails', async () => {
-    const query = 'test query';
-    const errorMessage = 'Vector database connection failed';
     
+    filteredVectorSearch.mockResolvedValue(mockResults);
+
+    const searchPayload = {
+      query: 'test query',
+      containerId: 'container-123',
+      filters: { status: 'active', type: 'document' },
+      limit: 10,
+    };
+
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send(searchPayload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ results: mockResults });
+    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(
+      searchPayload.query,
+      searchPayload.containerId,
+      searchPayload.filters,
+      searchPayload.limit
+    );
+  });
+
+  // Test Case 2: Successful search without optional filters
+  test('POST /api/ingestion/filtered-vector-search - should perform search without optional filters', async () => {
+    const mockResults = [
+      { id: 'doc-1', score: 0.95, content: 'Test content 1' },
+    ];
+    
+    filteredVectorSearch.mockResolvedValue(mockResults);
+
+    const searchPayload = {
+      query: 'another query',
+      containerId: 'container-456',
+    };
+
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send(searchPayload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ results: mockResults });
+    expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
+    expect(filteredVectorSearch).toHaveBeenCalledWith(
+      searchPayload.query,
+      searchPayload.containerId,
+      undefined,
+      undefined
+    );
+  });
+
+  // Test Case 3: Bad request - missing query
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if query is missing', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ containerId: 'container-123', filters: {} });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'query is required and must be a string.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 4: Bad request - invalid query type
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if query is not a string', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 12345, containerId: 'container-123' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'query is required and must be a string.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 5: Bad request - missing containerId
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if containerId is missing', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'test query', filters: {} });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'containerId is required and must be a string.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 6: Bad request - invalid containerId type
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if containerId is not a string', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'test query', containerId: 12345 });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'containerId is required and must be a string.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 7: Bad request - invalid filters type
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if filters is not an object', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'test query', containerId: 'container-123', filters: 'invalid' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'filters must be an object if provided.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 8: Bad request - invalid limit type
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if limit is not a number', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'test query', containerId: 'container-123', limit: 'ten' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'limit must be a positive integer if provided.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 9: Bad request - negative limit
+  test('POST /api/ingestion/filtered-vector-search - should return 400 if limit is negative', async () => {
+    const response = await request(app)
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'test query', containerId: 'container-123', limit: -5 });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'limit must be a positive integer if provided.' });
+    expect(filteredVectorSearch).not.toHaveBeenCalled();
+  });
+
+  // Test Case 10: Error handling - filteredVectorSearch throws an error
+  test('POST /api/ingestion/filtered-vector-search - should return 500 if search fails', async () => {
+    const errorMessage = 'Vector search failed';
     filteredVectorSearch.mockRejectedValue(new Error(errorMessage));
 
     const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query });
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'test query', containerId: 'container-123' });
 
     expect(response.status).toBe(500);
-    expect(response.body).toEqual({ message: 'Failed to perform vector search.', error: errorMessage });
+    expect(response.body).toEqual({ message: 'Failed to perform filtered vector search.', error: errorMessage });
     expect(filteredVectorSearch).toHaveBeenCalledTimes(1);
   });
 
-  // Test Case 10: Error handling - filteredVectorSearch returns null/empty results
-  test('POST /api/search/vector - should return empty results when no matches found', async () => {
-    const query = 'nonexistent content';
-    
+  // Test Case 11: Empty results
+  test('POST /api/ingestion/filtered-vector-search - should return empty array when no results found', async () => {
     filteredVectorSearch.mockResolvedValue([]);
 
     const response = await request(app)
-      .post('/api/search/vector')
-      .send({ query });
+      .post('/api/ingestion/filtered-vector-search')
+      .send({ query: 'nonexistent query', containerId: 'container-123' });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ results: [] });
