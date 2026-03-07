@@ -62,8 +62,12 @@ def test_readme_environment_variables_are_defined_in_env_example() -> None:
         "OPENAI_EMBEDDING_MODEL",
     ]
     for env_var in expected_env_vars:
-        assert f"{env_var}=" in env_example, f"Variable {env_var} missing from .env.example"
-        assert f"`{env_var}`" in readme, f"Variable {env_var} not properly referenced in README"
+        assert f"{env_var}=" in env_example, (
+            f"Variable {env_var} missing from .env.example"
+        )
+        assert f"`{env_var}`" in readme, (
+            f"Variable {env_var} not properly referenced in README"
+        )
 
 
 def test_readme_neo4j_setup_matches_docker_compose_service() -> None:
@@ -71,7 +75,9 @@ def test_readme_neo4j_setup_matches_docker_compose_service() -> None:
     readme = _read(README_PATH)
     compose = _read(DOCKER_COMPOSE_PATH)
 
-    assert "docker compose up -d neo4j" in readme, "Neo4j startup command not found in README"
+    assert "docker compose up -d neo4j" in readme, (
+        "Neo4j startup command not found in README"
+    )
     assert "neo4j:" in compose, "Neo4j service not found in docker-compose.yml"
 
 

@@ -1,4 +1,5 @@
 """Main application module."""
+
 import os
 from pathlib import Path
 import sys
