@@ -71,3 +71,26 @@ def test_get_latest_memories_by_container_uses_parameterized_pagination_instead_
     assert "skip: neo4j.int(skip)" in source
     assert "limit: neo4j.int(boundedPageSize)" in source
     assert "LIMIT $limit" in source
+
+
+def test_get_latest_memories_by_container_normalizes_invalid_pagination_inputs() -> None:
+    """Verify invalid page/pageSize values are normalized to safe minimums."""
+    source = _read(NEO4J_CLIENT_PATH)
+    assert "const boundedPage = Math.max(1, Math.floor(page));" in source
+    assert "const boundedPageSize = Math.max(1, Math.floor(pageSize));" in source
+
+
+def test_get_latest_memories_by_container_calculates_page_offset_from_page_and_size() -> None:
+    """Verify SKIP offset is derived from normalized page and pageSize."""
+    source = _read(NEO4J_CLIENT_PATH)
+    assert "const skip = (boundedPage - 1) * boundedPageSize;" in source
+    assert "skip: neo4j.int(skip)" in source
+
+
+def test_get_latest_memories_by_container_orders_before_paginating() -> None:
+    """Verify ordering by newest memory happens before SKIP/LIMIT pagination."""
+    source = _read(NEO4J_CLIENT_PATH)
+    order_idx = source.index("ORDER BY m.createdAt DESC")
+    skip_idx = source.index("SKIP $skip")
+    limit_idx = source.index("LIMIT $limit")
+    assert order_idx < skip_idx < limit_idx
