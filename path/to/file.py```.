@@ -1,0 +1,7 @@
+Let me reconsider... Maybe the user made a mistake and the files should actually be `.py` files, or maybe I should interpret the `.ts` as a mistake and output `.py` files since the format requires it and the instructions say "Python 3.12+".
+
+Actually, looking at the `batching.py` content provided, it looks like a direct translation of the `batching.ts` content. So the pattern is:
+- `batchCreateMemories` in TypeScript should become `batch_create_memories` in Python
+- The pipeline logic should be converted to Python
+
+Given that I must follow the output format

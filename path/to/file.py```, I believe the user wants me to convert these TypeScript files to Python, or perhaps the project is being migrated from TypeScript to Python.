@@ -1,0 +1,12 @@
+Actually, looking more carefully at the context:
+- The file paths in the subtask are `.ts` files
+- But the output format requires `.py` files
+- The `batching.py` file is shown as existing code
+
+I think the task is to implement the Python versions of these services. The `batching.py` already exists (shown at the end), and I need to:
+1. Update `batching.py` to add the `batch_create_memories` function (since currently it only has `gather_with_limit`, `chunk_list`, and `process_batches`)
+2. Create/update `pipeline.py` (converting from the TypeScript `pipeline.ts`) to use the `batch_create_memories` function
+
+Wait, but the subtask specifically mentions updating `processDocument` method in `src/services/ingestion/pipeline.ts` and using `batchCreateMemories` from `src/services/ingestion/batching.ts`.
+
+Given the constraint to output Python code (based on "Write clean, typed Python 3.12+ code" and the
