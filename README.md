@@ -121,6 +121,18 @@ Notes:
 npm run dev
 ```
 
+By default, this starts the MCP server in SSE mode at `http://0.0.0.0:8080` (set by `MCP_TRANSPORT=sse`, `MCP_HOST`, and `MCP_PORT`).
+
+Use these optional overrides when needed:
+
+```bash
+# Bind to localhost on a custom port
+MCP_HOST=127.0.0.1 MCP_PORT=3000 npm run dev
+
+# Run with stdio transport instead of SSE
+MCP_TRANSPORT=stdio npm run dev
+```
+
 For full architecture and implementation details, see [docs/SPEC.md](docs/SPEC.md).
 
 ## License
