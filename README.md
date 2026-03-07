@@ -28,6 +28,11 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 5. **User Profiles** — Auto-generated static + dynamic user profiles (MEDIUM)
 6. **Connectors** — Web crawler, Google Drive, WhatsApp/Chat sync (MEDIUM)
 
+## Configuration
+
+- **Container Configuration**: Allows setting and retrieving container-level settings, such as filter prompts, to customize ingestion pipelines. This is managed via dedicated API endpoints.
+
+
 ## Key Advantages over SaaS alternatives
 
 - 🔒 **Data sovereignty** — Self-hosted, your data stays yours

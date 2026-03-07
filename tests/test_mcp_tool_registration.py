@@ -31,10 +31,22 @@ def test_server_lists_registered_document_and_memory_tools() -> None:
     server_source = _read(SERVER_PATH)
 
     expected_tool_listings = [
-        ('name: "delete_document"', "inputSchema: zodToJsonSchema(deleteDocumentArgsSchema)"),
-        ('name: "update_document"', "inputSchema: zodToJsonSchema(updateDocumentArgsSchema)"),
-        ('name: "delete_memory"', "inputSchema: zodToJsonSchema(deleteMemoryArgsSchema)"),
-        ('name: "update_memory"', "inputSchema: zodToJsonSchema(updateMemoryArgsSchema)"),
+        (
+            'name: "delete_document"',
+            "inputSchema: zodToJsonSchema(deleteDocumentArgsSchema)",
+        ),
+        (
+            'name: "update_document"',
+            "inputSchema: zodToJsonSchema(updateDocumentArgsSchema)",
+        ),
+        (
+            'name: "delete_memory"',
+            "inputSchema: zodToJsonSchema(deleteMemoryArgsSchema)",
+        ),
+        (
+            'name: "update_memory"',
+            "inputSchema: zodToJsonSchema(updateMemoryArgsSchema)",
+        ),
         (
             'name: "reinforce_preference"',
             "inputSchema: zodToJsonSchema(reinforcePreferenceArgsSchema)",
@@ -50,11 +62,20 @@ def test_server_routes_registered_tools_to_neo4j_client_methods() -> None:
     server_source = _read(SERVER_PATH)
 
     expected_tool_routes = [
-        ('case "delete_document":', "this.neo4jClient.deleteDocument(input.documentId)"),
-        ('case "update_document":', "this.neo4jClient.updateDocument(input.documentId, {"),
+        (
+            'case "delete_document":',
+            "this.neo4jClient.deleteDocument(input.documentId)",
+        ),
+        (
+            'case "update_document":',
+            "this.neo4jClient.updateDocument(input.documentId, {",
+        ),
         ('case "delete_memory":', "this.neo4jClient.deleteMemory(input.memoryId)"),
         ('case "update_memory":', "this.neo4jClient.updateMemory(input.memoryId, {"),
-        ('case "reinforce_preference":', "this.neo4jClient.reinforcePreference(input.memoryId)"),
+        (
+            'case "reinforce_preference":',
+            "this.neo4jClient.reinforcePreference(input.memoryId)",
+        ),
     ]
 
     for case_label, call_line in expected_tool_routes:

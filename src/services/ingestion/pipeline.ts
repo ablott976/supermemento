@@ -212,4 +212,15 @@ export class IngestionPipeline {
   private async setStatus(documentId: string, status: DocumentStatus): Promise<void> {
     await this.neo4jClient.updateDocument(documentId, { status });
   }
+
+  /**
+   * Sets the configuration for a container, including filter prompts.
+   * @param containerTag The tag of the container.
+   * @param config The configuration object.
+   */
+  public async set_container_config(containerTag: string, config: { filterPrompt?: string | null }): Promise<void> {
+    // Assuming Neo4jClient will have a method to set container configuration.
+    // If this method does not exist, it will need to be added to Neo4jClient.
+    await this.neo4jClient.setContainerConfig(containerTag, config.filterPrompt);
+  }
 }

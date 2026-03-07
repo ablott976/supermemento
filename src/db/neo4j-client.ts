@@ -883,6 +883,29 @@ export class Neo4jClient {
   }
 
   /**
+   * Sets the filter prompt for a container tag.
+   * @param containerTag Container tag.
+   * @param filterPrompt The prompt to set, or null to unset.
+   */
+  public async setContainerConfig(
+    containerTag: string,
+    filterPrompt: string | null
+  ): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `
+        MERGE (c:ContainerConfig {containerTag: $containerTag})
+        SET c.filterPrompt = $filterPrompt
+        `,
+        { containerTag, filterPrompt }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Reads filter prompt configured for a container tag.
    * @param containerTag Container tag.
    */
