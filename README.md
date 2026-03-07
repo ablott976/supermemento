@@ -127,6 +127,13 @@ What this does:
 - Creates lookup indexes used by ingestion and retrieval flows.
 - Creates vector indexes (`memory_embeddings`, `chunk_embeddings`) for semantic search.
 
+Quick verification in Neo4j Browser (`http://localhost:7474`):
+
+```cypher
+SHOW CONSTRAINTS;
+SHOW INDEXES;
+```
+
 Notes:
 - The setup is idempotent (`IF NOT EXISTS`), so it is safe to run multiple times.
 - Re-run this command after pulling schema-related changes.
