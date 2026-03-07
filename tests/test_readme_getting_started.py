@@ -9,6 +9,7 @@ README_PATH = REPO_ROOT / "README.md"
 ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
 PACKAGE_JSON_PATH = REPO_ROOT / "package.json"
 DOCKER_COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
+SPEC_PATH = REPO_ROOT / "docs" / "SPEC.md"
 
 
 def _read(path: Path) -> str:
@@ -71,3 +72,12 @@ def test_readme_neo4j_setup_matches_docker_compose_service() -> None:
 
     assert "docker compose up -d neo4j" in readme
     assert "neo4j:" in compose
+
+
+def test_spec_references_readme_getting_started_for_local_setup() -> None:
+    spec = _read(SPEC_PATH)
+
+    assert "[Getting Started](../README.md#getting-started)" in spec
+    assert "instalación de dependencias" in spec
+    assert "variables de entorno" in spec
+    assert "inicialización del schema de Neo4j" in spec
