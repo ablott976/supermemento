@@ -87,9 +87,14 @@ test("batchCreateMemories runs a single UNWIND query and returns created memory 
 
   const { query, params } = runCalls[0];
   assert.match(query, /UNWIND\s+\$memories\s+as\s+memory/i);
+  assert.match(query, /ORDER BY idx ASC/i);
 
   const batch = params.memories as Array<Record<string, unknown>>;
   assert.equal(batch.length, 2);
+  assert.deepEqual(
+    batch.map((memory) => memory.idx),
+    [0, 1]
+  );
 
   assert.equal(typeof batch[0].id, "string");
   assert.equal(typeof batch[0].createdAt, "string");
