@@ -44,11 +44,26 @@ class AssignServiceRequest(BaseModel):
 class ClientServiceResponse(BaseModel):
     """Response schema for client service assignments."""
 
-    service_id: str = Field(..., alias="serviceId")
-    container_tag: str | None = Field(default=None, alias="containerTag")
-    user_id: str | None = Field(default=None, alias="userId")
-    status: str
-    metadata: dict[str, str] | None = None
+    service_id: str = Field(
+        ...,
+        alias="serviceId",
+        description="Identifier of the assigned service",
+    )
+    container_tag: str | None = Field(
+        default=None,
+        alias="containerTag",
+        description="Container tag bound to this assignment",
+    )
+    user_id: str | None = Field(
+        default=None,
+        alias="userId",
+        description="User identifier bound to this assignment",
+    )
+    status: str = Field(description="Current status of the assignment")
+    metadata: dict[str, str] | None = Field(
+        default=None,
+        description="Optional metadata persisted for the assignment",
+    )
 
     class Config:
         populate_by_name = True
