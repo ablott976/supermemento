@@ -3,8 +3,11 @@ import type { AppConfig } from "../config.js";
 
 /** OpenAI embedding service wrapper. */
 export class EmbeddingService {
+  private static readonly MAX_CACHE_ENTRIES = 1_000;
+
   private readonly client: OpenAI;
   private readonly model: string;
+  private readonly embeddingCache = new Map<string, number[]>();
 
   /**
    * Creates the embedding service.
@@ -37,13 +40,82 @@ export class EmbeddingService {
       return [];
     }
 
-    const response = await this.client.embeddings.create({
-      model: this.model,
-      input: texts
+    const embeddingsByIndex: Array<number[] | undefined> = new Array(texts.length);
+    const uncachedTexts: string[] = [];
+    const uncachedByText = new Map<string, number[]>();
+
+    for (const [index, text] of texts.entries()) {
+      const cached = this.getCachedEmbedding(text);
+      if (cached) {
+        embeddingsByIndex[index] = cached;
+        continue;
+      }
+
+      let indexes = uncachedByText.get(text);
+      if (!indexes) {
+        indexes = [];
+        uncachedByText.set(text, indexes);
+        uncachedTexts.push(text);
+      }
+      indexes.push(index);
+    }
+
+    if (uncachedTexts.length > 0) {
+      const response = await this.client.embeddings.create({
+        model: this.model,
+        input: uncachedTexts
+      });
+
+      const orderedEmbeddings = response.data
+        .sort((a, b) => a.index - b.index)
+        .map((item) => item.embedding);
+
+      for (const [uncachedIndex, text] of uncachedTexts.entries()) {
+        const embedding = orderedEmbeddings[uncachedIndex];
+        if (!embedding) {
+          throw new Error("Embedding generation returned no data");
+        }
+
+        this.setCachedEmbedding(text, embedding);
+        const indexes = uncachedByText.get(text) ?? [];
+        for (const resultIndex of indexes) {
+          embeddingsByIndex[resultIndex] = embedding.slice();
+        }
+      }
+    }
+
+    const completedEmbeddings = embeddingsByIndex.map((embedding) => {
+      if (!embedding) {
+        throw new Error("Embedding generation returned no data");
+      }
+      return embedding;
     });
 
-    return response.data
-      .sort((a, b) => a.index - b.index)
-      .map((item) => item.embedding);
+    return completedEmbeddings;
+  }
+
+  private getCachedEmbedding(text: string): number[] | undefined {
+    const cached = this.embeddingCache.get(text);
+    if (!cached) {
+      return undefined;
+    }
+
+    this.embeddingCache.delete(text);
+    this.embeddingCache.set(text, cached);
+    return cached.slice();
+  }
+
+  private setCachedEmbedding(text: string, embedding: number[]): void {
+    if (this.embeddingCache.has(text)) {
+      this.embeddingCache.delete(text);
+    }
+    this.embeddingCache.set(text, embedding.slice());
+
+    if (this.embeddingCache.size > EmbeddingService.MAX_CACHE_ENTRIES) {
+      const oldestKey = this.embeddingCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.embeddingCache.delete(oldestKey);
+      }
+    }
   }
 }
