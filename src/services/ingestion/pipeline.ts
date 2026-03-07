@@ -6,7 +6,7 @@ import { RelationClassifierService } from "../relation-classifier.js";
 import { ChunkingService, type ChunkPayload } from "./chunker.js";
 import { MemoryExtractorService, type ExtractedMemory } from "./memory-extractor.js";
 import { ConversationExtractor, TextExtractor, UrlExtractor, type Extractor } from "./extractors/index.js";
-import { batchCreateMemories, gatherWithLimit, parallelExtractMemories } from "./batching.js";
+import { batchClassifyRelations, batchCreateMemories, parallelExtractMemories } from "./batching.js";
 
 export type PipelineInput = {
   title: string;
@@ -149,17 +149,7 @@ export class IngestionPipeline {
           })
           .filter((memory): memory is Memory => memory !== null);
 
-        await gatherWithLimit(
-          createdMemories,
-          async (memory) => {
-            try {
-              await this.relationClassifierService.classifyAndApply(memory);
-            } catch (e) {
-              console.warn(`[pipeline] RelationClassifier skipped for memory ${memory.id}:`, (e as Error).message);
-            }
-          },
-          5
-        );
+        await this.classifyAndApply(createdMemories);
       }
 
       const finalDocument = await this.neo4jClient.updateDocument(document.id, {
@@ -196,6 +186,25 @@ export class IngestionPipeline {
     filterPrompt: string | null
   ): Promise<ExtractedMemory[]> {
     return parallelExtractMemories(chunks, this.memoryExtractorService, filterPrompt);
+  }
+
+  private async classifyAndApply(memories: readonly Memory[]): Promise<void> {
+    await batchClassifyRelations(
+      memories,
+      async (batch) =>
+        Promise.all(
+          batch.map(async (memory) => {
+            try {
+              return await this.relationClassifierService.classifyAndApply(memory);
+            } catch (e) {
+              console.warn(`[pipeline] RelationClassifier skipped for memory ${memory.id}:`, (e as Error).message);
+              return null;
+            }
+          })
+        ),
+      10,
+      3
+    );
   }
 
   private getExtractor(contentType: ContentType): Extractor {
