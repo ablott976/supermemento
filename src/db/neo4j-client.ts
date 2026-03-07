@@ -99,10 +99,24 @@ export class Neo4jClient {
     const session = this.driver.session();
     const now = new Date().toISOString();
     const id = uuidv4();
-
     try {
       const result = await session.run(
-        ` CREATE (d:Document { id: $id, title: $title, contentType: $contentType, rawContent: $rawContent, sourceUrl: $sourceUrl, filePath: $filePath, containerTag: $containerTag, metadata: $metadata, status: $status, createdAt: datetime($createdAt), updatedAt: datetime($updatedAt) }) RETURN d `,
+        `
+        CREATE (d:Document {
+          id: $id,
+          title: $title,
+          contentType: $contentType,
+          rawContent: $rawContent,
+          sourceUrl: $sourceUrl,
+          filePath: $filePath,
+          containerTag: $containerTag,
+          metadata: $metadata,
+          status: $status,
+          createdAt: datetime($createdAt),
+          updatedAt: datetime($updatedAt)
+        })
+        RETURN d
+        `,
         {
           id,
           title: input.title,
@@ -111,132 +125,83 @@ export class Neo4jClient {
           sourceUrl: input.sourceUrl ?? null,
           filePath: input.filePath ?? null,
           containerTag: input.containerTag,
-          metadata: input.metadata ? (typeof input.metadata === "string" ? input.metadata : JSON.stringify(input.metadata)) : "{}",
-          status: DocumentStatus.Queued,
+          metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+          status: DocumentStatus.Pending,
           createdAt: now,
-          updatedAt: now
+          updatedAt: now,
         }
       );
-
-      return this.mapDocument(result.records[0]?.get("d"));
+      const record = result.records[0];
+      const node = record.get("d");
+      return {
+        id: node.properties.id,
+        title: node.properties.title,
+        contentType: node.properties.contentType,
+        rawContent: node.properties.rawContent,
+        sourceUrl: node.properties.sourceUrl,
+        filePath: node.properties.filePath,
+        containerTag: node.properties.containerTag,
+        metadata: node.properties.metadata ? JSON.parse(node.properties.metadata) : {},
+        status: node.properties.status,
+        createdAt: node.properties.createdAt.toString(),
+        updatedAt: node.properties.updatedAt.toString(),
+      } as Document;
     } finally {
       await session.close();
     }
   }
 
   /**
-   * Returns a document by id.
-   * @param documentId Document identifier.
+   * Retrieves the latest memories for a specific container.
+   * @param containerTag The container tag to filter memories by.
+   * @param limit Maximum number of memories to retrieve (default: LIMIT_LATEST_MEMORIES).
+   * @returns Array of memories ordered by creation date (newest first).
    */
-  public async getDocument(documentId: string): Promise<Document | null> {
+  public async getLatestMemoriesByContainer(
+    containerTag: string,
+    limit: number = LIMIT_LATEST_MEMORIES
+  ): Promise<Memory[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
-        "MATCH (d:Document {id: $id}) RETURN d LIMIT 1",
-        { id: documentId }
-      );
-
-      if (result.records.length === 0) {
-        return null;
-      }
-
-      return this.mapDocument(result.records[0]?.get("d"));
-    } finally {
-      await session.close();
-    }
-  }
-
-  /**
-   * Lists documents filtered by container tag and optional status.
-   * @param params Listing filters.
-   */
-  public async listDocuments(params: {
-    containerTag?: string;
-    status?: DocumentStatus;
-    limit?: number;
-  }): Promise<Document[]> {
-    const session = this.driver.session();
-    try {
-      const result = await session.run(
-        ` MATCH (d:Document) WHERE ($containerTag IS NULL OR d.containerTag = $containerTag) AND ($status IS NULL OR d.status = $status) RETURN d ORDER BY d.createdAt DESC LIMIT $limit `,
-        {
-          containerTag: params.containerTag ?? null,
-          status: params.status ?? null,
-          limit: neo4j.int(params.limit ?? 50)
+        `
+        MATCH (m:Memory {containerTag: $containerTag})
+        WHERE m.isLatest = true OR m.isLatest IS NULL
+        RETURN m
+        ORDER BY m.createdAt DESC
+        LIMIT $limit
+        `,
+        { 
+          containerTag, 
+          limit: neo4j.int(limit) 
         }
       );
 
-      return result.records.map((record) => this.mapDocument(record.get("d")));
+      return result.records.map((record) => {
+        const node = record.get("m");
+        const props = node.properties;
+        return {
+          id: props.id,
+          content: props.content,
+          memoryType: props.memoryType,
+          containerTag: props.containerTag,
+          confidence: props.confidence,
+          sourceDocId: props.sourceDocId,
+          isLatest: props.isLatest ?? true,
+          validFrom: props.validFrom,
+          validTo: props.validTo,
+          createdAt: props.createdAt?.toString(),
+          updatedAt: props.updatedAt?.toString(),
+          forgottenAt: props.forgottenAt,
+          embedding: props.embedding,
+        } as Memory;
+      });
     } finally {
       await session.close();
     }
-  }
-
-  /**
-   * Retrieves latest memories by container with a limit.
-   * @param containerTag Container identifier.
-   * @returns Array of latest memories.
-   */
-  public async getLatestMemoriesByContainer(containerTag: string): Promise<Memory[]> {
-    const session = this.driver.session();
-    try {
-      const result = await session.run(
-        ` MATCH (m:Memory {containerTag: $containerTag}) WHERE m.isLatest = true RETURN m ORDER BY m.createdAt DESC LIMIT $limit `,
-        {
-          containerTag,
-          limit: neo4j.int(LIMIT_LATEST_MEMORIES)
-        }
-      );
-
-      return result.records.map((record) => this.mapMemory(record.get("m")));
-    } finally {
-      await session.close();
-    }
-  }
-
-  /**
-   * Maps a Neo4j node to a Document object.
-   */
-  private mapDocument(node: any): Document {
-    if (!node) {
-      throw new Error("Node is null");
-    }
-    return {
-      id: node.properties.id,
-      title: node.properties.title,
-      contentType: node.properties.contentType,
-      rawContent: node.properties.rawContent,
-      sourceUrl: node.properties.sourceUrl,
-      filePath: node.properties.filePath,
-      containerTag: node.properties.containerTag,
-      metadata: typeof node.properties.metadata === "string" ? JSON.parse(node.properties.metadata) : node.properties.metadata,
-      status: node.properties.status,
-      createdAt: node.properties.createdAt?.toString(),
-      updatedAt: node.properties.updatedAt?.toString()
-    };
-  }
-
-  /**
-   * Maps a Neo4j node to a Memory object.
-   */
-  private mapMemory(node: any): Memory {
-    if (!node) {
-      throw new Error("Node is null");
-    }
-    return {
-      id: node.properties.id,
-      content: node.properties.content,
-      memoryType: node.properties.memoryType,
-      containerTag: node.properties.containerTag,
-      confidence: node.properties.confidence,
-      embedding: node.properties.embedding,
-      isLatest: node.properties.isLatest,
-      sourceDocId: node.properties.sourceDocId,
-      validFrom: node.properties.validFrom?.toString(),
-      validTo: node.properties.validTo?.toString(),
-      forgottenAt: node.properties.forgottenAt?.toString(),
-      createdAt: node.properties.createdAt?.toString(),
-      updatedAt: node.properties.updatedAt?.toString()
-    };
   }
 }
+
+export const set_container_config = jest.fn();
+export const getContainerFilterPrompt = jest.fn();
+export const getLatestMemoriesByContainer = jest.fn();
