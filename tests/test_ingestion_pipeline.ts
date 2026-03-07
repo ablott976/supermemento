@@ -7,7 +7,8 @@ import {
   parallelExtractMemories,
   type MemoryBatchInput,
 } from "../src/services/ingestion/batching.js";
-import { MemoryType } from "../src/types/enums.js";
+import { IngestionPipeline } from "../src/services/ingestion/pipeline.js";
+import { ContentType, DocumentStatus, MemoryType } from "../src/types/enums.js";
 import type { ChunkPayload } from "../src/services/ingestion/chunker.js";
 import type { ExtractedMemory } from "../src/services/ingestion/memory-extractor.js";
 
@@ -422,4 +423,148 @@ test("batchClassifyRelations validates maxConcurrency", async () => {
     batchClassifyRelations(["m1"], classifier, 1, 1.5),
     /maxConcurrency must be a positive integer/
   );
+});
+
+test("processDocument sets error status when memory extraction fails", async () => {
+  const updateCalls: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const now = new Date().toISOString();
+  const document = {
+    id: "doc-llm-fail",
+    title: "Test Doc",
+    contentType: ContentType.Text,
+    rawContent: "alpha\n\nbeta",
+    sourceUrl: null,
+    filePath: null,
+    containerTag: "inbox",
+    metadata: {},
+    status: DocumentStatus.Queued,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const neo4jClient = {
+    getDocument: async () => document,
+    updateDocument: async (id: string, payload: Record<string, unknown>) => {
+      updateCalls.push({ id, payload });
+      return { ...document, ...payload };
+    },
+    getContainerFilterPrompt: async () => null,
+    createChunks: async () => undefined,
+    getDriver: () => ({
+      session: () => ({
+        run: async () => ({ records: [] }),
+        close: async () => undefined,
+      }),
+    }),
+  };
+
+  const embeddingService = {
+    generateEmbeddings: async (_inputs: readonly string[]) => [],
+  };
+
+  const relationClassifierService = {
+    classifyAndApply: async () => undefined,
+  };
+
+  const memoryExtractorService = {
+    extractFromChunk: async () => {
+      throw new Error("llm extraction failed");
+    },
+  };
+
+  const pipeline = new IngestionPipeline(
+    neo4jClient as never,
+    embeddingService as never,
+    relationClassifierService as never,
+    memoryExtractorService as never
+  );
+
+  await assert.rejects(
+    pipeline.processDocument(document.id),
+    /llm extraction failed/
+  );
+
+  const errorUpdate = updateCalls.at(-1);
+  assert.ok(errorUpdate);
+  assert.equal(errorUpdate.id, document.id);
+  assert.equal(errorUpdate.payload.status, DocumentStatus.Error);
+  assert.match(String(errorUpdate.payload.metadata), /llm extraction failed/);
+});
+
+test("processDocument sets error status when batch memory creation fails", async () => {
+  const updateCalls: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const createdChunkBatches: unknown[] = [];
+  const now = new Date().toISOString();
+  const document = {
+    id: "doc-db-fail",
+    title: "Test Doc",
+    contentType: ContentType.Text,
+    rawContent: "alpha\n\nbeta",
+    sourceUrl: null,
+    filePath: null,
+    containerTag: "inbox",
+    metadata: {},
+    status: DocumentStatus.Queued,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const neo4jClient = {
+    getDocument: async () => document,
+    updateDocument: async (id: string, payload: Record<string, unknown>) => {
+      updateCalls.push({ id, payload });
+      return { ...document, ...payload };
+    },
+    getContainerFilterPrompt: async () => null,
+    createChunks: async (chunks: unknown) => {
+      createdChunkBatches.push(chunks);
+    },
+    getDriver: () => ({
+      session: () => ({
+        run: async () => {
+          throw new Error("neo4j write failed");
+        },
+        close: async () => undefined,
+      }),
+    }),
+  };
+
+  const embeddingService = {
+    generateEmbeddings: async (inputs: readonly string[]) => inputs.map(() => [0.01, 0.02]),
+  };
+
+  const relationClassifierService = {
+    classifyAndApply: async () => undefined,
+  };
+
+  const memoryExtractorService = {
+    extractFromChunk: async () => [
+      {
+        content: "memory from chunk",
+        memoryType: MemoryType.Fact,
+        confidence: 0.94,
+        validFrom: null,
+        validTo: null,
+      },
+    ],
+  };
+
+  const pipeline = new IngestionPipeline(
+    neo4jClient as never,
+    embeddingService as never,
+    relationClassifierService as never,
+    memoryExtractorService as never
+  );
+
+  await assert.rejects(
+    pipeline.processDocument(document.id),
+    /neo4j write failed/
+  );
+
+  assert.equal(createdChunkBatches.length, 1);
+  const errorUpdate = updateCalls.at(-1);
+  assert.ok(errorUpdate);
+  assert.equal(errorUpdate.id, document.id);
+  assert.equal(errorUpdate.payload.status, DocumentStatus.Error);
+  assert.match(String(errorUpdate.payload.metadata), /neo4j write failed/);
 });
