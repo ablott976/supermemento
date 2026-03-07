@@ -49,3 +49,20 @@ def test_get_latest_memories_by_container_closes_session_on_error() -> None:
     assert "try {" in source
     assert "finally {" in source
     assert "await session.close();" in source
+
+
+def test_get_latest_memories_by_container_remains_bounded_when_container_is_large() -> None:
+    """Verify query remains bounded for containers with many active memories."""
+    source = _read(NEO4J_CLIENT_PATH)
+    assert "const LIMIT_LATEST_MEMORIES = 100;" in source
+    assert "limit: number = LIMIT_LATEST_MEMORIES" in source
+    assert "ORDER BY m.createdAt DESC" in source
+    assert "LIMIT $limit" in source
+
+
+def test_get_latest_memories_by_container_uses_parameterized_limit_instead_of_unbounded_query() -> None:
+    """Verify large limits are passed as a parameterized integer to Cypher."""
+    source = _read(NEO4J_CLIENT_PATH)
+    assert "MATCH (m:Memory {containerTag: $containerTag})" in source
+    assert "limit: neo4j.int(limit)" in source
+    assert "LIMIT $limit" in source
