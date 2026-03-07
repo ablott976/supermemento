@@ -25,9 +25,7 @@ export class SearchService {
     this.embeddingService = embeddingService;
     this.queryRewriter = new QueryRewriterService(config);
     this.fallbackReranker = new SimpleReranker();
-    this.defaultReranker = config.COHERE_API_KEY
-      ? new CohereReranker(config)
-      : this.fallbackReranker;
+    this.defaultReranker = config.COHERE_API_KEY ? new CohereReranker(config) : this.fallbackReranker;
   }
 
   /**
@@ -38,8 +36,8 @@ export class SearchService {
     const mode = params.searchMode ?? "hybrid";
     const limit = params.limit ?? 10;
     const minScore = params.min_similarity ?? 0.6;
-
     const query = params.query.trim();
+
     if (!query) {
       throw new Error("Search query cannot be empty");
     }
@@ -47,28 +45,32 @@ export class SearchService {
     const rewrittenQuery = params.rewriteQuery ? await this.queryRewriter.rewrite(query) : query;
     const embedding = await this.embeddingService.generateEmbedding(rewrittenQuery);
 
-    const memoryResults =
-      mode === "rag"
-        ? []
-        : await this.neo4jClient.semanticSearchMemoriesAdvanced({
-            embedding,
-            containerTag: params.containerTag,
-            minScore,
-            limit,
-            isLatestOnly: true,
-            memoryTypes: params.memoryTypes,
-            includeExpired: params.includeExpired ?? false
-          });
+    // Execute memory and chunk searches in parallel using Promise.all
+    const memorySearchPromise = mode === "rag"
+      ? Promise.resolve([])
+      : this.neo4jClient.semanticSearchMemoriesAdvanced({
+          embedding,
+          containerTag: params.containerTag,
+          minScore,
+          limit,
+          isLatestOnly: true,
+          memoryTypes: params.memoryTypes,
+          includeExpired: params.includeExpired ?? false
+        });
 
-    const chunkResults =
-      mode === "memory"
-        ? []
-        : await this.neo4jClient.semanticSearchChunks({
-            embedding,
-            containerTag: params.containerTag,
-            minScore,
-            limit
-          });
+    const chunkSearchPromise = mode === "memory"
+      ? Promise.resolve([])
+      : this.neo4jClient.semanticSearchChunks({
+          embedding,
+          containerTag: params.containerTag,
+          minScore,
+          limit
+        });
+
+    const [memoryResults, chunkResults] = await Promise.all([
+      memorySearchPromise,
+      chunkSearchPromise
+    ]);
 
     const merged: SearchResult[] = [
       ...memoryResults.map((hit) => ({
@@ -106,7 +108,6 @@ export class SearchService {
 
   private dedupe(results: SearchResult[]): SearchResult[] {
     const byId = new Map<string, SearchResult>();
-
     for (const result of results) {
       const key = `${result.type}:${result.id}`;
       const existing = byId.get(key);
@@ -114,7 +115,6 @@ export class SearchService {
         byId.set(key, result);
       }
     }
-
     return [...byId.values()].sort((a, b) => b.score - a.score);
   }
 }
