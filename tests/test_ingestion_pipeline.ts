@@ -403,6 +403,22 @@ test("parallelExtractMemories rejects when extraction fails for any chunk", asyn
   );
 });
 
+test("parallelExtractMemories validates maxConcurrency", async () => {
+  const chunks: ChunkPayload[] = [{ content: "chunk-a", chunkIndex: 0, metadata: {} }];
+  const memoryExtractorService = {
+    extractFromChunk: async (): Promise<ExtractedMemory[]> => [],
+  };
+
+  await assert.rejects(
+    parallelExtractMemories(chunks, memoryExtractorService as never, null, 0),
+    /concurrency must be a positive integer/
+  );
+  await assert.rejects(
+    parallelExtractMemories(chunks, memoryExtractorService as never, null, 1.5),
+    /concurrency must be a positive integer/
+  );
+});
+
 test("batchClassifyRelations returns [] and does not call classifier when memories are empty", async () => {
   let callCount = 0;
   const classifier = async () => {
