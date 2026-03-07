@@ -85,11 +85,20 @@ docker compose up -d neo4j
 
 ### 4. Initialize Neo4j schema
 
-This creates required constraints and indexes (including vector indexes):
+After Neo4j is running and `.env` is configured, initialize the graph schema:
 
 ```bash
 npm run setup:schema
 ```
+
+What this does:
+- Creates required uniqueness constraints for core nodes.
+- Creates lookup indexes used by ingestion and retrieval flows.
+- Creates vector indexes (`memory_embeddings`, `chunk_embeddings`) for semantic search.
+
+Notes:
+- The setup is idempotent (`IF NOT EXISTS`), so it is safe to run multiple times.
+- Re-run this command after pulling schema-related changes.
 
 ### 5. Run the server in development mode
 
