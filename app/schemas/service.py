@@ -72,10 +72,24 @@ class ClientServiceResponse(BaseModel):
 class ClientServiceUpdate(BaseModel):
     """Request schema for updating a client service assignment."""
 
-    container_tag: str | None = Field(default=None, alias="containerTag")
-    user_id: str | None = Field(default=None, alias="userId")
-    status: str | None = None
-    metadata: dict[str, str] | None = None
+    container_tag: str | None = Field(
+        default=None,
+        alias="containerTag",
+        description="Updated container tag for the assignment",
+    )
+    user_id: str | None = Field(
+        default=None,
+        alias="userId",
+        description="Updated user identifier for the assignment",
+    )
+    status: str | None = Field(
+        default=None,
+        description="Updated assignment status",
+    )
+    metadata: dict[str, str] | None = Field(
+        default=None,
+        description="Updated metadata for the assignment",
+    )
 
     class Config:
         populate_by_name = True
