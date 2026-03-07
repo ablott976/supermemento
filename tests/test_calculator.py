@@ -7,7 +7,7 @@ from app.calculator import add, subtract, multiply, divide, DivisionByZeroError
 
 class TestAdd:
     """Tests for add function."""
-    
+
     def test_add_positive_integers(self) -> None:
         assert add(1, 2) == 3
         assert add(0, 5) == 5
@@ -30,7 +30,7 @@ class TestAdd:
 
 class TestSubtract:
     """Tests for subtract function."""
-    
+
     def test_subtract_positive_integers(self) -> None:
         assert subtract(5, 3) == 2
         assert subtract(3, 5) == -2
@@ -48,7 +48,7 @@ class TestSubtract:
 
 class TestMultiply:
     """Tests for multiply function."""
-    
+
     def test_multiply_positive_integers(self) -> None:
         assert multiply(3, 4) == 12
         assert multiply(5, 5) == 25
@@ -70,7 +70,7 @@ class TestMultiply:
 
 class TestDivide:
     """Tests for divide function."""
-    
+
     def test_divide_positive_integers(self) -> None:
         assert divide(6, 3) == 2.0
         assert divide(7, 2) == 3.5
@@ -84,7 +84,7 @@ class TestDivide:
         with pytest.raises(DivisionByZeroError) as exc_info:
             divide(5, 0)
         assert str(exc_info.value) == "Cannot divide by zero"
-        
+
         with pytest.raises(DivisionByZeroError):
             divide(0, 0)
 

@@ -20,6 +20,4 @@ class CreateUserRequest(BaseModel):
     """Request model for creating a user."""
 
     name: str = Field(..., min_length=1, max_length=100)
-    email: str = Field(
-        ..., pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
-    )
+    email: str = Field(..., pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
