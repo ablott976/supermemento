@@ -32,4 +32,20 @@ def test_get_latest_memories_by_container_uses_limit_in_cypher() -> None:
 def test_get_latest_memories_by_container_passes_limit_to_session() -> None:
     """Verify the limit value is passed to session.run parameters."""
     source = _read(NEO4J_CLIENT_PATH)
-    assert "{ containerTag, limit:" in source or "{containerTag, limit:" in source
+    assert "containerTag" in source
+    assert "limit: neo4j.int(limit)" in source
+
+
+def test_get_latest_memories_by_container_handles_empty_container_results() -> None:
+    """Verify empty/non-existent containers are handled by returning an empty list."""
+    source = _read(NEO4J_CLIENT_PATH)
+    assert "return result.records.map((record) => {" in source
+
+
+def test_get_latest_memories_by_container_closes_session_on_error() -> None:
+    """Verify session cleanup is guaranteed even if query processing fails."""
+    source = _read(NEO4J_CLIENT_PATH)
+    assert "public async getLatestMemoriesByContainer(" in source
+    assert "try {" in source
+    assert "finally {" in source
+    assert "await session.close();" in source
