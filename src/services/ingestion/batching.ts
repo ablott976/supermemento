@@ -6,6 +6,8 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Neo4jClient } from "../../db/neo4j-client.js";
 import type { MemoryType } from "../../types/enums.js";
+import type { ChunkPayload } from "./chunker.js";
+import type { ExtractedMemory, MemoryExtractorService } from "./memory-extractor.js";
 
 /**
  * Input type for batch memory creation.
@@ -114,6 +116,38 @@ export async function processBatches<T, R>(
 ): Promise<R[]> {
   const batches = chunkList(items, batchSize);
   return Promise.all(batches.map((batch) => batchProcessor(batch)));
+}
+
+/**
+ * Extract memories from chunks in parallel with a configurable concurrency limit.
+ * Flattens per-chunk extraction results into a single memory list.
+ *
+ * @param chunks Chunk payloads to extract from
+ * @param memoryExtractorService Memory extractor service instance
+ * @param filterPrompt Optional filter prompt
+ * @param maxConcurrency Maximum number of concurrent extraction calls
+ * @returns Flat list of extracted memories
+ */
+export async function parallelExtractMemories(
+  chunks: readonly ChunkPayload[],
+  memoryExtractorService: MemoryExtractorService,
+  filterPrompt?: string | null,
+  maxConcurrency: number = 5
+): Promise<ExtractedMemory[]> {
+  if (chunks.length === 0) {
+    return [];
+  }
+
+  const extractedPerChunk = await gatherWithLimit(
+    chunks,
+    async (chunk) =>
+      memoryExtractorService.extractFromChunk(chunk.content, {
+        filterPrompt: filterPrompt ?? null,
+      }),
+    maxConcurrency
+  );
+
+  return extractedPerChunk.flat();
 }
 
 /**
