@@ -1,6 +1,5 @@
-from __future__ import annotations
+from __future__ import annotations  # ruff: noqa: E402
 
-# ruff: noqa: E402
 import pytest
 
 try:
@@ -41,64 +40,52 @@ class UnhealthyDriver:
 def make_client(driver: object) -> TestClient:
     app = FastAPI()
     app.include_router(router)
-
     async def override_driver() -> object:
         return driver
-
     app.dependency_overrides[get_neo4j_driver] = override_driver
     return TestClient(app)
 
 
 def test_health_endpoint_reports_ok_when_neo4j_is_reachable() -> None:
     driver = HealthyDriver()
-
     with make_client(driver) as client:
         response = client.get("/health")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "neo4j": "connected"}
-    assert driver.checked is True
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "neo4j": "connected"}
+        assert driver.checked is True
 
 
 def test_health_endpoint_reports_unavailable_when_neo4j_is_unreachable() -> None:
     with make_client(UnhealthyDriver()) as client:
         response = client.get("/health")
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": "Neo4j connectivity check failed"}
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Neo4j connectivity check failed"}
 
 
 def test_unknown_route_returns_not_found() -> None:
     with make_client(HealthyDriver()) as client:
         response = client.get("/does-not-exist")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Not Found"}
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not Found"}
 
 
 def test_error_route_returns_bad_request() -> None:
     app = FastAPI()
-
     @app.get("/bad-request")
     async def bad_request() -> None:
         raise HTTPException(status_code=400, detail="bad request")
-
     with TestClient(app) as client:
         response = client.get("/bad-request")
-
-    assert response.status_code == 400
-    assert response.json() == {"detail": "bad request"}
+        assert response.status_code == 400
+        assert response.json() == {"detail": "bad request"}
 
 
 def test_error_route_returns_conflict() -> None:
     app = FastAPI()
-
     @app.get("/conflict")
     async def conflict() -> None:
         raise HTTPException(status_code=409, detail="conflict")
-
     with TestClient(app) as client:
         response = client.get("/conflict")
-
-    assert response.status_code == 409
-    assert response.json() == {"detail": "conflict"}
+        assert response.status_code == 409
+        assert response.json() == {"detail": "conflict"}
