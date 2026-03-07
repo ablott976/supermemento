@@ -146,6 +146,39 @@ test("batchCreateMemories closes the session when the query fails", async () => 
   assert.equal(closeCalled, 1);
 });
 
+test("batchCreateMemories propagates close errors after a successful query", async () => {
+  const session = {
+    run: async () => ({
+      records: [{ get: () => "memory-ok" }],
+    }),
+    close: async () => {
+      throw new Error("session close failed");
+    },
+  };
+
+  const neo4jClient = {
+    getDriver: () => ({
+      session: () => session,
+    }),
+  };
+
+  const memories: MemoryBatchInput[] = [
+    {
+      content: "Memory D",
+      memoryType: MemoryType.Fact,
+      containerTag: "inbox",
+      confidence: 0.93,
+      embedding: [0.9],
+      sourceDocId: "doc-789",
+    },
+  ];
+
+  await assert.rejects(
+    batchCreateMemories(neo4jClient as never, memories),
+    /session close failed/
+  );
+});
+
 test("parallelExtractMemories returns [] and does not call extractor when chunks are empty", async () => {
   let callCount = 0;
   const memoryExtractorService = {
@@ -246,6 +279,28 @@ test("parallelExtractMemories respects maxConcurrency", async () => {
   assert.equal(maxActive, 2);
 });
 
+test("parallelExtractMemories rejects when extraction fails for any chunk", async () => {
+  const chunks: ChunkPayload[] = [
+    { content: "chunk-ok-1", chunkIndex: 0, metadata: {} },
+    { content: "chunk-fail", chunkIndex: 1, metadata: {} },
+    { content: "chunk-ok-2", chunkIndex: 2, metadata: {} },
+  ];
+
+  const memoryExtractorService = {
+    extractFromChunk: async (chunkText: string): Promise<ExtractedMemory[]> => {
+      if (chunkText === "chunk-fail") {
+        throw new Error("llm extraction failed");
+      }
+      return [];
+    },
+  };
+
+  await assert.rejects(
+    parallelExtractMemories(chunks, memoryExtractorService as never, null, 3),
+    /llm extraction failed/
+  );
+});
+
 test("batchClassifyRelations returns [] and does not call classifier when memories are empty", async () => {
   let callCount = 0;
   const classifier = async () => {
@@ -300,4 +355,20 @@ test("batchClassifyRelations respects maxConcurrency for batch processing", asyn
   await batchClassifyRelations(memories, classifier, 2, 2);
 
   assert.equal(maxActive, 2);
+});
+
+test("batchClassifyRelations rejects when any classification batch fails", async () => {
+  const memories = ["m1", "m2", "m3", "m4"];
+
+  const classifier = async (batch: readonly string[]) => {
+    if (batch.includes("m3")) {
+      throw new Error("llm classification failed");
+    }
+    return batch.map((memory) => `${memory}-ok`);
+  };
+
+  await assert.rejects(
+    batchClassifyRelations(memories, classifier, 2, 2),
+    /llm classification failed/
+  );
 });
