@@ -1,4 +1,19 @@
+import { v4 as uuidv4 } from "uuid";
+
+import type { Neo4jClient } from "../../db/neo4j-client.js";
+import type { MemoryType } from "../../types/enums.js";
+
 export type AsyncMapper<TInput, TOutput> = (item: TInput, index: number) => Promise<TOutput>;
+export type MemoryBatchInput = {
+  content: string;
+  memoryType: MemoryType;
+  containerTag: string;
+  confidence: number;
+  embedding: number[];
+  sourceDocId: string;
+  validFrom?: string | null;
+  validTo?: string | null;
+};
 
 /**
  * Splits an array into fixed-size batches.
@@ -74,4 +89,67 @@ export async function mapInBatches<TInput, TOutput>(
   }
 
   return output;
+}
+
+/**
+ * Creates many memories in a single write query via UNWIND.
+ */
+export async function batchCreateMemories(
+  neo4jClient: Neo4jClient,
+  memories: readonly MemoryBatchInput[]
+): Promise<string[]> {
+  if (memories.length === 0) {
+    return [];
+  }
+
+  const session = neo4jClient.getDriver().session();
+  const now = new Date().toISOString();
+
+  const rows = memories.map((memory, idx) => ({
+    idx,
+    id: uuidv4(),
+    content: memory.content,
+    memoryType: memory.memoryType,
+    containerTag: memory.containerTag,
+    confidence: memory.confidence,
+    embedding: memory.embedding,
+    sourceDocId: memory.sourceDocId,
+    validFrom: memory.validFrom ?? null,
+    validTo: memory.validTo ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  try {
+    const result = await session.run(
+      `
+      UNWIND $memories as memory
+      MATCH (d:Document {id: memory.sourceDocId})
+      CREATE (m:Memory {
+        id: memory.id,
+        content: memory.content,
+        memoryType: memory.memoryType,
+        containerTag: memory.containerTag,
+        isLatest: true,
+        confidence: memory.confidence,
+        originalConfidence: NULL,
+        embedding: memory.embedding,
+        validFrom: CASE WHEN memory.validFrom IS NULL THEN NULL ELSE datetime(memory.validFrom) END,
+        validTo: CASE WHEN memory.validTo IS NULL THEN NULL ELSE datetime(memory.validTo) END,
+        forgottenAt: NULL,
+        createdAt: datetime(memory.createdAt),
+        updatedAt: datetime(memory.updatedAt),
+        sourceDocId: memory.sourceDocId
+      })
+      CREATE (m)-[:EXTRACTED_FROM]->(d)
+      RETURN memory.idx AS idx, m.id AS id
+      ORDER BY idx ASC
+      `,
+      { memories: rows }
+    );
+
+    return result.records.map((record) => String(record.get("id")));
+  } finally {
+    await session.close();
+  }
 }
