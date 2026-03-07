@@ -1,0 +1,131 @@
+{% if chatbot %}
+<div class="config-container">
+    <div class="config-header">
+        <h3>Chatbot Configuration</h3>
+        <div class="config-actions">
+            <button class="btn btn-secondary" id="reset-config">
+                <span class="icon">↺</span> Reset
+            </button>
+            <button class="btn btn-primary" id="save-config">
+                <span class="icon">💾</span> Save Changes
+            </button>
+        </div>
+    </div>
+    
+    <form class="config-form" id="chatbot-config-form" data-chatbot-id="{{ chatbot.id }}">
+        <div class="config-section">
+            <h4>General Settings</h4>
+            <div class="form-group">
+                <label for="chatbot-name">Name</label>
+                <input type="text" id="chatbot-name" name="name" value="{{ chatbot.name or '' }}" class="form-control" required>
+                <span class="help-text">Display name for this chatbot</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="chatbot-description">Description</label>
+                <textarea id="chatbot-description" name="description" class="form-control" rows="3">{{ chatbot.description or '' }}</textarea>
+                <span class="help-text">Brief description of the chatbot's purpose</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="chatbot-status">Status</label>
+                <select id="chatbot-status" name="status" class="form-control">
+                    <option value="active" {% if chatbot.status == 'active' %}selected{% endif %}>Active</option>
+                    <option value="inactive" {% if chatbot.status == 'inactive' %}selected{% endif %}>Inactive</option>
+                    <option value="maintenance" {% if chatbot.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="config-section">
+            <h4>Model Configuration</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="chatbot-model">Model</label>
+                    <select id="chatbot-model" name="model" class="form-control" required>
+                        <option value="gpt-4" {% if chatbot.model == 'gpt-4' %}selected{% endif %}>GPT-4</option>
+                        <option value="gpt-4-turbo" {% if chatbot.model == 'gpt-4-turbo' %}selected{% endif %}>GPT-4 Turbo</option>
+                        <option value="gpt-3.5-turbo" {% if chatbot.model == 'gpt-3.5-turbo' %}selected{% endif %}>GPT-3.5 Turbo</option>
+                        <option value="claude-3-opus" {% if chatbot.model == 'claude-3-opus' %}selected{% endif %}>Claude 3 Opus</option>
+                        <option value="claude-3-sonnet" {% if chatbot.model == 'claude-3-sonnet' %}selected{% endif %}>Claude 3 Sonnet</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="chatbot-temperature">Temperature</label>
+                    <input type="number" id="chatbot-temperature" name="temperature" value="{{ chatbot.temperature or 0.7 }}" min="0" max="2" step="0.1" class="form-control" required>
+                    <span class="help-text">0 = deterministic, 2 = very creative</span>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="chatbot-max-tokens">Max Tokens</label>
+                    <input type="number" id="chatbot-max-tokens" name="max_tokens" value="{{ chatbot.max_tokens or 2048 }}" min="1" max="4096" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="chatbot-timeout">Response Timeout (seconds)</label>
+                    <input type="number" id="chatbot-timeout" name="timeout" value="{{ chatbot.timeout or 30 }}" min="5" max="300" class="form-control" required>
+                </div>
+            </div>
+        </div>
+        
+        <div class="config-section">
+            <h4>Behavior Settings</h4>
+            <div class="form-group">
+                <label for="chatbot-system-prompt">System Prompt</label>
+                <textarea id="chatbot-system-prompt" name="system_prompt" class="form-control monospace" rows="6">{{ chatbot.system_prompt or '' }}</textarea>
+                <span class="help-text">Instructions that define the chatbot's behavior and personality</span>
+            </div>
+            
+            <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="chatbot-streaming" name="streaming" {% if chatbot.streaming %}checked{% endif %}>
+                    <span>Enable streaming responses</span>
+                </label>
+            </div>
+            
+            <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="chatbot-context-retention" name="context_retention" {% if chatbot.context_retention is not defined or chatbot.context_retention %}checked{% endif %}>
+                    <span>Retain conversation context</span>
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label for="chatbot-context-window">Context Window (messages)</label>
+                <input type="number" id="chatbot-context-window" name="context_window" value="{{ chatbot.context_window or 10 }}" min="1" max="100" class="form-control">
+                <span class="help-text">Number of previous messages to include in context</span>
+            </div>
+        </div>
+        
+        <div class="config-section">
+            <h4>Advanced Settings</h4>
+            <div class="form-group">
+                <label for="chatbot-api-key">API Key</label>
+                <input type="password" id="chatbot-api-key" name="api_key" value="{{ '••••••••' if chatbot.api_key else '' }}" class="form-control" placeholder="Leave blank to keep current">
+                <span class="help-text">API key for the selected model provider</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="chatbot-webhook-url">Webhook URL</label>
+                <input type="url" id="chatbot-webhook-url" name="webhook_url" value="{{ chatbot.webhook_url or '' }}" class="form-control" placeholder="https://...">
+                <span class="help-text">Optional webhook for notifications</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="chatbot-custom-headers">Custom Headers (JSON)</label>
+                <textarea id="chatbot-custom-headers" name="custom_headers" class="form-control monospace" rows="3" placeholder='{"X-Custom-Header": "value"}'>{{ chatbot.custom_headers or '' }}</textarea>
+            </div>
+        </div>
+    </form>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">🤖</div>
+    <h3>No Chatbot Selected</h3>
+    <p>Select a chatbot from the list to configure its settings, or create a new one.</p>
+    <button class="btn btn-primary" id="create-chatbot">Create Chatbot</button>
+</div>
+{% endif %}

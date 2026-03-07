@@ -17,7 +17,6 @@ def process_data(data: dict[str, Any]) -> dict[str, Any]:
     """
     if not data:
         raise ValueError("Data cannot be empty")
-
     return {k: v.upper() if isinstance(v, str) else v for k, v in data.items()}
 
 
