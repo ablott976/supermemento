@@ -44,8 +44,16 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ### 1. Install dependencies
 
+From the project root (`supermemento-e9`), install Node.js dependencies:
+
 ```bash
 npm install
+```
+
+If you want a clean, lockfile-strict install in CI-style environments, use:
+
+```bash
+npm ci
 ```
 
 ### 2. Configure environment variables
