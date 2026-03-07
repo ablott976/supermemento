@@ -1,278 +1,328 @@
 {% if conversations %}
-<div class="conversations-tab">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Literata:opsz,wght@7..72,400;7..72,600&display=swap');
-
-        .conversations-tab {
-            --paper: #f8f1e7;
-            --ink: #111111;
-            --panel: #f2d9b8;
-            --accent: #db2b39;
-            --accent-soft: rgba(219, 43, 57, 0.14);
-            --muted: #5a4a3c;
-            position: relative;
-            padding: 1.5rem;
-            border: 2px solid var(--ink);
-            background:
-                radial-gradient(circle at 85% 15%, rgba(219, 43, 57, 0.22) 0%, transparent 36%),
-                radial-gradient(circle at 14% 88%, rgba(0, 0, 0, 0.09) 0%, transparent 30%),
-                repeating-linear-gradient(-14deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.03) 2px, transparent 2px, transparent 18px),
-                var(--paper);
-            overflow: hidden;
-        }
-
-        .conversations-tab::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background: linear-gradient(132deg, transparent 0%, transparent 63%, var(--accent-soft) 100%);
-            opacity: 0.9;
-        }
-
-        .conversations-tab > * {
-            position: relative;
-            z-index: 1;
-        }
-
-        .conversations-header {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 1rem;
-            align-items: center;
-            margin-bottom: 1.25rem;
-        }
-
-        .conversations-title {
-            margin: 0;
-            font-family: "Abril Fatface", serif;
-            font-size: clamp(2rem, 4vw, 2.7rem);
-            letter-spacing: 0.02em;
-            line-height: 1;
-            color: var(--ink);
-            text-transform: uppercase;
-            transform: rotate(-1deg);
-        }
-
-        .conversations-subtitle {
-            margin: 0.35rem 0 0;
-            font-family: "Literata", serif;
-            font-size: 0.95rem;
-            color: var(--muted);
-            max-width: 40ch;
-        }
-
-        .conversations-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            justify-content: flex-end;
-        }
-
-        .conversations-actions .btn {
-            border-width: 2px;
-            border-radius: 0;
-            font-family: "Literata", serif;
-            font-weight: 600;
-            transition: transform 180ms ease, box-shadow 180ms ease;
-        }
-
-        .conversations-actions .btn:hover {
-            transform: translate(-2px, -2px);
-            box-shadow: 4px 4px 0 var(--ink);
-        }
-
-        .conversations-table-wrapper {
-            border: 2px solid var(--ink);
-            background: rgba(255, 255, 255, 0.56);
-            backdrop-filter: blur(1px);
-            overflow-x: auto;
-        }
-
-        .conversations-table {
-            width: 100%;
-            border-collapse: collapse;
-            min-width: 740px;
-        }
-
-        .conversations-table th {
-            padding: 0.9rem 0.8rem;
-            font-family: "Literata", serif;
-            font-size: 0.72rem;
-            letter-spacing: 0.09em;
-            text-transform: uppercase;
-            text-align: left;
-            border-bottom: 2px solid var(--ink);
-            background: var(--panel);
-            color: var(--ink);
-        }
-
-        .conversation-row {
-            animation: reveal-row 420ms ease both;
-        }
-
+<div class="conversations-tab" id="conversations-container">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Literata:opsz,wght@7..72,400;7..72,600&display=swap');
+    .conversations-tab {
+      --paper: #f8f1e7;
+      --ink: #111111;
+      --panel: #f2d9b8;
+      --accent: #db2b39;
+      --accent-soft: rgba(219, 43, 57, 0.14);
+      --muted: #5a4a3c;
+      position: relative;
+      padding: 1.5rem;
+      border: 2px solid var(--ink);
+      background: radial-gradient(circle at 85% 15%, rgba(219, 43, 57, 0.22) 0%, transparent 36%), radial-gradient(circle at 14% 88%, rgba(0, 0, 0, 0.09) 0%, transparent 30%), repeating-linear-gradient(-14deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.03) 2px, transparent 2px, transparent 18px), var(--paper);
+      overflow: hidden;
+    }
+    .conversations-tab::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(132deg, transparent 0%, transparent 63%, var(--accent-soft) 100%);
+      opacity: 0.9;
+    }
+    .conversations-tab > * {
+      position: relative;
+      z-index: 1;
+    }
+    .conversations-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1rem;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+    .conversations-title {
+      margin: 0;
+      font-family: "Abril Fatface", serif;
+      font-size: clamp(2rem, 4vw, 2.7rem);
+      letter-spacing: 0.02em;
+      line-height: 1;
+      color: var(--ink);
+      text-transform: uppercase;
+      transform: rotate(-1deg);
+    }
+    .conversations-subtitle {
+      margin: 0.35rem 0 0;
+      font-family: "Literata", serif;
+      font-size: 0.95rem;
+      color: var(--muted);
+      max-width: 40ch;
+    }
+    .conversations-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: flex-end;
+    }
+    .conversations-actions .btn {
+      border-width: 2px;
+      border-radius: 0;
+      font-family: "Literata", serif;
+      font-weight: 600;
+      transition: transform 180ms ease, box-shadow 180ms ease;
+    }
+    .conversations-actions .btn:hover {
+      transform: translate(-2px, -2px);
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+    .conversations-table-wrapper {
+      border: 2px solid var(--ink);
+      background: rgba(255, 255, 255, 0.56);
+      backdrop-filter: blur(1px);
+      overflow-x: auto;
+    }
+    .conversations-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 740px;
+    }
+    .conversations-table th {
+      padding: 0.9rem 0.8rem;
+      font-family: "Literata", serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      text-align: left;
+      border-bottom: 2px solid var(--ink);
+      background: var(--panel);
+      color: var(--ink);
+    }
+    .conversation-row {
+      animation: reveal-row 420ms ease both;
+    }
+    {% for conversation in conversations %}
+    .conversation-row:nth-child({{ loop.index }}) {
+      animation-delay: {{ loop.index0 * 85 }}ms;
+    }
+    {% endfor %}
+    .conversations-table td {
+      padding: 0.85rem 0.8rem;
+      font-family: "Literata", serif;
+      border-bottom: 1px solid rgba(17, 17, 17, 0.26);
+      vertical-align: middle;
+      color: var(--ink);
+    }
+    .conversation-subject {
+      margin: 0;
+      font-weight: 600;
+      font-size: 1rem;
+    }
+    .conversation-preview {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      max-width: 44ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .conversation-meta {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .conversation-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.2rem 0.45rem;
+      border: 1px solid var(--ink);
+      background: #fff;
+    }
+    .conversation-status::before {
+      content: "";
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .conversation-status.active::before {
+      background: #2d6a4f;
+    }
+    .conversation-status.closed::before {
+      background: #6c757d;
+    }
+    .conversation-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .btn-icon {
+      padding: 0.4rem;
+      background: transparent;
+      border: 1px solid var(--ink);
+      cursor: pointer;
+      transition: all 180ms ease;
+    }
+    .btn-icon:hover {
+      background: var(--panel);
+      transform: translate(-1px, -1px);
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+    .htmx-indicator {
+      opacity: 0;
+      transition: opacity 200ms;
+    }
+    .htmx-request .htmx-indicator {
+      opacity: 1;
+    }
+    .htmx-request.htmx-indicator {
+      opacity: 1;
+    }
+    @keyframes reveal-row {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+  
+  <div class="conversations-header">
+    <div>
+      <h2 class="conversations-title">Conversations</h2>
+      <p class="conversations-subtitle">Manage and review chatbot interactions</p>
+    </div>
+    <div class="conversations-actions">
+      <button class="btn btn-secondary" 
+              hx-get="/dashboard/conversations/refresh"
+              hx-target="#conversations-container"
+              hx-swap="outerHTML"
+              hx-indicator=".refresh-spinner">
+        <span class="refresh-spinner htmx-indicator">↻</span>
+        <span class="refresh-text">Refresh</span>
+      </button>
+      <button class="btn btn-primary" 
+              hx-get="/dashboard/conversations/export"
+              hx-target="#export-modal"
+              hx-swap="innerHTML">
+        Export Data
+      </button>
+    </div>
+  </div>
+  
+  <div class="conversations-table-wrapper">
+    <table class="conversations-table">
+      <thead>
+        <tr>
+          <th>Conversation</th>
+          <th>Status</th>
+          <th>Messages</th>
+          <th>Last Activity</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
         {% for conversation in conversations %}
-        .conversation-row:nth-child({{ loop.index }}) {
-            animation-delay: {{ loop.index0 * 85 }}ms;
-        }
+        <tr class="conversation-row" 
+            id="conversation-row-{{ conversation.id }}"
+            hx-trigger="mouseenter"
+            hx-get="/dashboard/conversations/{{ conversation.id }}/preview"
+            hx-target="#conversation-preview-panel"
+            hx-swap="innerHTML">
+          <td>
+            <div class="conversation-subject">{{ conversation.subject or 'Untitled Conversation' }}</div>
+            <div class="conversation-preview">{{ conversation.last_message or 'No messages yet' }}</div>
+          </td>
+          <td>
+            <span class="conversation-status {{ conversation.status }}">
+              {{ conversation.status|title }}
+            </span>
+          </td>
+          <td class="conversation-meta">{{ conversation.message_count or 0 }}</td>
+          <td class="conversation-meta">{{ conversation.updated_at or '—' }}</td>
+          <td>
+            <div class="conversation-actions">
+              <button class="btn-icon" 
+                      title="View Details"
+                      hx-get="/dashboard/conversations/{{ conversation.id }}"
+                      hx-target="#conversation-detail-panel"
+                      hx-swap="innerHTML"
+                      hx-push-url="true">
+                👁
+              </button>
+              <button class="btn-icon" 
+                      title="Archive"
+                      hx-post="/dashboard/conversations/{{ conversation.id }}/archive"
+                      hx-target="#conversation-row-{{ conversation.id }}"
+                      hx-swap="outerHTML"
+                      hx-confirm="Archive this conversation?">
+                📦
+              </button>
+              <button class="btn-icon" 
+                      title="Delete"
+                      hx-delete="/dashboard/conversations/{{ conversation.id }}"
+                      hx-target="#conversation-row-{{ conversation.id }}"
+                      hx-swap="outerHTML swap:300ms"
+                      hx-confirm="Are you sure you want to delete this conversation? This action cannot be undone.">
+                🗑
+              </button>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
-
-        .conversations-table td {
-            padding: 0.85rem 0.8rem;
-            font-family: "Literata", serif;
-            border-bottom: 1px solid rgba(17, 17, 17, 0.26);
-            vertical-align: middle;
-            color: var(--ink);
-        }
-
-        .conversation-subject {
-            margin: 0;
-            font-weight: 600;
-            font-size: 1rem;
-        }
-
-        .conversation-preview {
-            margin: 0.2rem 0 0;
-            color: var(--muted);
-            font-size: 0.88rem;
-            max-width: 44ch;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .conversation-meta {
-            font-variant-numeric: tabular-nums;
-            white-space: nowrap;
-        }
-
-        .conversation-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            font-size: 0.82rem;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            padding: 0.2rem 0.45rem;
-            border: 1px solid var(--ink);
-            background: #fff;
-        }
-
-        .conversation-status::before {
-            content: "";
-            width: 0.55rem;
-            height: 0.55rem;
-            border-radius: 50%;
-            background: var(--accent);
-        }
-
-        .conversation-actions {
-            display: flex;
-            gap: 0.45rem;
-        }
-
-        .conversation-actions .btn {
-            min-width: 2.2rem;
-            border-width: 2px;
-            border-radius: 0;
-            transition: transform 170ms ease;
-        }
-
-        .conversation-actions .btn:hover {
-            transform: rotate(-3deg) scale(1.03);
-        }
-
-        @keyframes reveal-row {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @media (max-width: 900px) {
-            .conversations-tab {
-                padding: 1rem;
-            }
-
-            .conversations-header {
-                grid-template-columns: 1fr;
-                gap: 0.75rem;
-            }
-
-            .conversations-actions {
-                justify-content: flex-start;
-            }
-        }
-    </style>
-
-    <div class="conversations-header">
-        <div>
-            <h3 class="conversations-title">Conversations</h3>
-            <p class="conversations-subtitle">Every thread, every pivot, every unresolved fork in one editorial timeline.</p>
-        </div>
-        <div class="conversations-actions">
-            <button class="btn btn-secondary" id="archive-selected-conversations">
-                <span class="icon">🗂</span> Archive
-            </button>
-            <button class="btn btn-primary" id="new-conversation">
-                <span class="icon">✎</span> New Conversation
-            </button>
-        </div>
-    </div>
-
-    <div class="conversations-table-wrapper">
-        <table class="table conversations-table">
-            <thead>
-                <tr>
-                    <th>Thread</th>
-                    <th>Owner</th>
-                    <th>Last Activity</th>
-                    <th>Messages</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for conversation in conversations %}
-                <tr class="conversation-row" data-conversation-id="{{ conversation.id }}">
-                    <td>
-                        <p class="conversation-subject">{{ conversation.title or conversation.subject or 'Untitled Conversation' }}</p>
-                        <p class="conversation-preview">{{ conversation.preview or conversation.last_message or 'No preview available.' }}</p>
-                    </td>
-                    <td class="conversation-meta">{{ conversation.owner or conversation.user_name or 'Unknown' }}</td>
-                    <td class="conversation-meta">{{ conversation.updated_at or conversation.last_activity or '—' }}</td>
-                    <td class="conversation-meta">{{ conversation.message_count or 0 }}</td>
-                    <td>
-                        <span class="conversation-status">{{ conversation.status or 'active' }}</span>
-                    </td>
-                    <td>
-                        <div class="conversation-actions">
-                            <button class="btn btn-sm btn-action" data-action="open" data-conversation="{{ conversation.id }}" title="Open Conversation">
-                                <span class="icon">↗</span>
-                            </button>
-                            <button class="btn btn-sm btn-warning" data-action="pin" data-conversation="{{ conversation.id }}" title="Pin Conversation">
-                                <span class="icon">📌</span>
-                            </button>
-                            <button class="btn btn-sm btn-danger" data-action="delete" data-conversation="{{ conversation.id }}" title="Delete Conversation">
-                                <span class="icon">✕</span>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+      </tbody>
+    </table>
+  </div>
+  
+  <!-- Preview panel that updates on hover -->
+  <div id="conversation-preview-panel" class="preview-panel" style="margin-top: 1rem; padding: 1rem; border: 1px solid var(--ink); background: var(--panel); display: none;">
+    <!-- Preview content loaded here -->
+  </div>
+  
+  <!-- Detail panel for viewing full conversation -->
+  <div id="conversation-detail-panel" class="detail-panel" style="margin-top: 1rem;">
+    <!-- Full conversation loaded here -->
+  </div>
+  
+  <!-- Modal container for export options -->
+  <div id="export-modal" style="display: none;" hx-on::after-request="if(this.innerHTML) this.style.display='block'"></div>
 </div>
 {% else %}
-<div class="empty-state">
-    <div class="empty-state-icon">💬</div>
-    <h3>No Conversations Yet</h3>
-    <p>Start a new thread to begin tracking discussions and replies.</p>
-    <button class="btn btn-primary" id="create-first-conversation">Create Conversation</button>
+<div class="conversations-tab empty" id="conversations-empty">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Literata:opsz,wght@7..72,400;7..72,600&display=swap');
+    .conversations-tab.empty {
+      --paper: #f8f1e7;
+      --ink: #111111;
+      --panel: #f2d9b8;
+      --accent: #db2b39;
+      --muted: #5a4a3c;
+      padding: 3rem;
+      text-align: center;
+      border: 2px solid var(--ink);
+      background: var(--paper);
+    }
+    .empty-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .conversations-tab.empty h3 {
+      font-family: "Abril Fatface", serif;
+      color: var(--ink);
+      margin: 0 0 0.5rem 0;
+    }
+    .conversations-tab.empty p {
+      font-family: "Literata", serif;
+      color: var(--muted);
+      margin: 0 0 1.5rem 0;
+    }
+  </style>
+  <div class="empty-icon">💬</div>
+  <h3>No Conversations Yet</h3>
+  <p>Start chatting with your chatbot to see conversations appear here.</p>
+  <button class="btn btn-primary" 
+          hx-get="/dashboard/chatbots"
+          hx-target="#tab-content"
+          hx-swap="innerHTML">
+    Go to Chatbots
+  </button>
 </div>
 {% endif %}

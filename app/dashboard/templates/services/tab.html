@@ -1,79 +1,124 @@
 {% if services %}
-<div class="services-container">
-    <div class="services-header">
-        <h3>System Services</h3>
-        <div class="services-actions">
-            <button class="btn btn-primary" id="refresh-services">
-                <span class="icon">↻</span> Refresh
+<div class="services-container" id="services-container">
+  <div class="services-header">
+    <h3>System Services</h3>
+    <div class="services-actions">
+      <button class="btn btn-primary" id="refresh-services"
+              hx-get="/dashboard/services/tab"
+              hx-target="#services-container"
+              hx-swap="outerHTML"
+              hx-indicator="#refresh-indicator">
+        <span class="icon" id="refresh-indicator" aria-hidden="true">↻</span> Refresh
+      </button>
+    </div>
+  </div>
+  <div class="services-list" id="services-list">
+    <table class="table services-table">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Status</th>
+          <th>Uptime</th>
+          <th>Memory</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for service in services %}
+        <tr data-service-id="{{ service.id }}" 
+            class="service-row {% if service.status == 'error' %}status-error{% elif service.status == 'running' %}status-running{% else %}status-stopped{% endif %}"
+            id="service-row-{{ service.id }}">
+          <td class="service-info">
+            <div class="service-name">{{ service.name }}</div>
+            <div class="service-description">{{ service.description }}</div>
+          </td>
+          <td class="service-status">
+            <span class="status-badge status-{{ service.status }}" id="service-status-{{ service.id }}">
+              {{ service.status|title }}
+            </span>
+          </td>
+          <td class="service-uptime">
+            {% if service.uptime %}
+              {{ service.uptime }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="service-memory">
+            {% if service.memory_usage %}
+              {{ service.memory_usage }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="service-actions">
+            <button class="btn btn-sm btn-action" 
+                    data-action="logs" 
+                    data-service="{{ service.id }}"
+                    hx-get="/dashboard/services/{{ service.id }}/logs"
+                    hx-target="#service-logs-modal"
+                    hx-swap="innerHTML"
+                    title="View Logs">
+              <span class="icon">📄</span>
             </button>
-        </div>
-    </div>
-    
-    <div class="services-list">
-        <table class="table services-table">
-            <thead>
-                <tr>
-                    <th>Service</th>
-                    <th>Status</th>
-                    <th>Uptime</th>
-                    <th>Memory</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for service in services %}
-                <tr data-service-id="{{ service.id }}" class="service-row {% if service.status == 'error' %}status-error{% elif service.status == 'running' %}status-running{% else %}status-stopped{% endif %}">
-                    <td class="service-info">
-                        <div class="service-name">{{ service.name }}</div>
-                        <div class="service-description">{{ service.description }}</div>
-                    </td>
-                    <td class="service-status">
-                        <span class="status-badge status-{{ service.status }}">
-                            {{ service.status|title }}
-                        </span>
-                    </td>
-                    <td class="service-uptime">
-                        {% if service.uptime %}
-                            {{ service.uptime }}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </td>
-                    <td class="service-memory">
-                        {% if service.memory_usage %}
-                            {{ service.memory_usage }}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </td>
-                    <td class="service-actions">
-                        <button class="btn btn-sm btn-action" data-action="logs" data-service="{{ service.id }}" title="View Logs">
-                            <span class="icon">📄</span>
-                        </button>
-                        {% if service.status == 'running' %}
-                            <button class="btn btn-sm btn-warning" data-action="restart" data-service="{{ service.id }}" title="Restart">
-                                <span class="icon">↻</span>
-                            </button>
-                            <button class="btn btn-sm btn-danger" data-action="stop" data-service="{{ service.id }}" title="Stop">
-                                <span class="icon">■</span>
-                            </button>
-                        {% else %}
-                            <button class="btn btn-sm btn-success" data-action="start" data-service="{{ service.id }}" title="Start">
-                                <span class="icon">▶</span>
-                            </button>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+            {% if service.status == 'running' %}
+              <button class="btn btn-sm btn-warning" 
+                      data-action="restart" 
+                      data-service="{{ service.id }}"
+                      hx-post="/dashboard/services/{{ service.id }}/restart"
+                      hx-target="#service-row-{{ service.id }}"
+                      hx-swap="outerHTML"
+                      hx-indicator="#spinner-{{ service.id }}"
+                      hx-confirm="Are you sure you want to restart {{ service.name }}?"
+                      title="Restart">
+                <span class="icon" id="spinner-{{ service.id }}">↻</span>
+              </button>
+              <button class="btn btn-sm btn-danger" 
+                      data-action="stop" 
+                      data-service="{{ service.id }}"
+                      hx-post="/dashboard/services/{{ service.id }}/stop"
+                      hx-target="#service-row-{{ service.id }}"
+                      hx-swap="outerHTML"
+                      hx-indicator="#spinner-stop-{{ service.id }}"
+                      hx-confirm="Are you sure you want to stop {{ service.name }}?"
+                      title="Stop">
+                <span class="icon" id="spinner-stop-{{ service.id }}">■</span>
+              </button>
+            {% else %}
+              <button class="btn btn-sm btn-success" 
+                      data-action="start" 
+                      data-service="{{ service.id }}"
+                      hx-post="/dashboard/services/{{ service.id }}/start"
+                      hx-target="#service-row-{{ service.id }}"
+                      hx-swap="outerHTML"
+                      hx-indicator="#spinner-start-{{ service.id }}"
+                      title="Start">
+                <span class="icon" id="spinner-start-{{ service.id }}">▶</span>
+              </button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  
+  <!-- Modal container for logs -->
+  <div id="service-logs-modal" class="modal-container" style="display: none;" hx-on::after-request="this.style.display='block'">
+    <!-- Logs content loaded here -->
+  </div>
 </div>
 {% else %}
-<div class="empty-state">
-    <div class="empty-state-icon">🔧</div>
-    <h3>No Services Configured</h3>
-    <p>There are no services configured for this dashboard.</p>
-    <button class="btn btn-primary" id="add-service">Add Service</button>
+<div class="empty-state" id="services-empty-state">
+  <div class="empty-state-icon">🔧</div>
+  <h3>No Services Configured</h3>
+  <p>There are no services configured for this dashboard.</p>
+  <button class="btn btn-primary" 
+          id="add-service"
+          hx-get="/dashboard/services/new"
+          hx-target="#services-container"
+          hx-swap="outerHTML">
+    Add Service
+  </button>
 </div>
 {% endif %}
