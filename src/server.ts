@@ -22,14 +22,21 @@ import { SearchService } from "./services/search/search-service.js";
 import { WebCrawlerConnector } from "./services/connectors/web-crawler.js";
 import { ContentType, DocumentStatus, MemoryType } from "./types/index.js";
 
+/** Accept both "YYYY-MM-DD" and full ISO datetime, normalising date-only to midnight UTC */
+const flexibleDatetime = z.string().optional().transform((v) => {
+  if (!v) return v;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
+  return v;
+}).pipe(z.string().datetime().optional());
+
 const createMemoryArgsSchema = z.object({
   content: z.string().min(1),
   memoryType: z.nativeEnum(MemoryType),
   containerTag: z.string().min(1),
   sourceDocId: z.string().uuid().optional(),
   confidence: z.number().min(0).max(1).default(0.9),
-  validFrom: z.string().datetime().optional(),
-  validTo: z.string().datetime().optional()
+  validFrom: flexibleDatetime,
+  validTo: flexibleDatetime
 });
 
 const semanticSearchArgsSchema = z.object({
@@ -120,8 +127,16 @@ const updateMemoryArgsSchema = z.object({
   memoryType: z.nativeEnum(MemoryType).optional(),
   isLatest: z.boolean().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  validFrom: z.string().nullable().optional(),
-  validTo: z.string().nullable().optional(),
+  validFrom: z.string().nullable().optional().transform((v) => {
+    if (!v) return v;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
+    return v;
+  }),
+  validTo: z.string().nullable().optional().transform((v) => {
+    if (!v) return v;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
+    return v;
+  }),
   forgottenAt: z.string().nullable().optional()
 });
 
