@@ -231,6 +231,6 @@ export class IngestionPipeline {
   public async set_container_config(containerTag: string, config: { filterPrompt?: string | null }): Promise<void> {
     // Assuming Neo4jClient will have a method to set container configuration.
     // If this method does not exist, it will need to be added to Neo4jClient.
-    await this.neo4jClient.setContainerConfig(containerTag, config.filterPrompt);
+    await this.neo4jClient.setContainerConfig(containerTag, config.filterPrompt ?? null);
   }
 }

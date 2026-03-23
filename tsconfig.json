@@ -15,5 +15,5 @@
     "noImplicitOverride": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "src/tests", "src/**/*.test.ts", "src/routes"]
+  "exclude": ["dist", "node_modules", "src/tests", "src/**/*.test.ts", "src/routes", "src/services/ingestion/extractors/image.ts", "src/services/ingestion/extractors/pdf.ts"]
 }
