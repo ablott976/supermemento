@@ -58,6 +58,7 @@ export class PdfExtractor implements Extractor {
 
   private async loadPdfParser(): Promise<(dataBuffer: Buffer) => Promise<PdfParseResult>> {
     try {
+      // @ts-ignore - optional dependency, loaded dynamically
       const mod = (await import("pdf-parse")) as PdfParseModule;
       const parse = mod.default;
 

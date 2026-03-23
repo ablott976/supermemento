@@ -69,6 +69,7 @@ export class ImageExtractor implements Extractor {
 
   private async loadTesseract(): Promise<Required<TesseractModule>> {
     try {
+      // @ts-ignore - optional dependency, loaded dynamically
       const mod = (await import("tesseract.js")) as TesseractModule;
       if (!mod.recognize) {
         throw new Error("tesseract.js recognize export is unavailable");
