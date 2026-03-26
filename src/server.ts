@@ -1,10 +1,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  isInitializeRequest,
   type CallToolResult,
   type ListToolsResult
 } from "@modelcontextprotocol/sdk/types.js";
@@ -240,22 +243,38 @@ export class SupermementoServer {
   }
 
   /**
-   * Starts the server on HTTP/SSE transport.
+   * Starts the server on HTTP/SSE + Streamable HTTP transport.
    * @param port Port to listen on (default 8080).
    * @param host Host to bind to (default 0.0.0.0).
    */
   public async startSSE(port = 8080, host = "0.0.0.0"): Promise<void> {
     await this.neo4jClient.verifyConnectivity();
 
-    const sessions = new Map<string, SSEServerTransport>();
+    // Shared transport map for both SSE and Streamable HTTP sessions
+    const transports = new Map<string, SSEServerTransport | StreamableHTTPServerTransport>();
+
+    /** Parse JSON body from raw IncomingMessage (no Express body-parser). */
+    const parseJsonBody = (req: IncomingMessage): Promise<unknown> =>
+      new Promise((resolve, reject) => {
+        let body = "";
+        req.on("data", (chunk: Buffer | string) => (body += chunk));
+        req.on("end", () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch (e) {
+            reject(e);
+          }
+        });
+        req.on("error", reject);
+      });
 
     const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
       // CORS headers
       res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
 
       if (req.method === "OPTIONS") {
         res.writeHead(204);
@@ -266,24 +285,124 @@ export class SupermementoServer {
       // Health check
       if (url.pathname === "/health" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", version: "0.2.0" }));
+        res.end(JSON.stringify({ status: "ok", version: "0.2.0", transports: ["sse", "streamable-http"] }));
         return;
       }
 
-      // SSE endpoint — client connects here to establish the stream
+      // ── Streamable HTTP transport (/mcp) ─────────────────────────
+      if (url.pathname === "/mcp") {
+        try {
+          const sessionId = req.headers["mcp-session-id"] as string | undefined;
+          let transport: StreamableHTTPServerTransport | undefined;
+
+          if (sessionId && transports.has(sessionId)) {
+            const existing = transports.get(sessionId);
+            if (existing instanceof StreamableHTTPServerTransport) {
+              transport = existing;
+            } else {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({
+                jsonrpc: "2.0",
+                error: { code: -32000, message: "Bad Request: Session uses a different transport protocol" },
+                id: null
+              }));
+              return;
+            }
+          } else if (!sessionId && req.method === "POST") {
+            // Parse body to check if it's an initialize request
+            const body = await parseJsonBody(req);
+            if (isInitializeRequest(body)) {
+              transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                onsessioninitialized: (sid: string) => {
+                  console.log(`[supermemento] Streamable HTTP session initialized: ${sid}`);
+                  transports.set(sid, transport!);
+                }
+              });
+
+              transport.onclose = () => {
+                const sid = transport!.sessionId;
+                if (sid && transports.has(sid)) {
+                  console.log(`[supermemento] Streamable HTTP session closed: ${sid}`);
+                  transports.delete(sid);
+                }
+              };
+
+              // Each Streamable HTTP session gets its own Server instance
+              const sessionServer = new Server(
+                { name: "supermemento-mcp", version: "0.2.0" },
+                { capabilities: { tools: {} } }
+              );
+              this.registerHandlersOnServer(sessionServer);
+              await sessionServer.connect(transport);
+
+              // Handle the request with pre-parsed body
+              await transport.handleRequest(req, res, body);
+              return;
+            } else {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({
+                jsonrpc: "2.0",
+                error: { code: -32600, message: "Bad Request: First request must be an initialize request" },
+                id: null
+              }));
+              return;
+            }
+          } else if (sessionId && !transports.has(sessionId)) {
+            // Session not found
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              jsonrpc: "2.0",
+              error: { code: -32001, message: "Session not found" },
+              id: null
+            }));
+            return;
+          } else {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              jsonrpc: "2.0",
+              error: { code: -32600, message: "Bad Request: No valid session ID provided" },
+              id: null
+            }));
+            return;
+          }
+
+          // For existing sessions, parse body for POST, then delegate
+          if (req.method === "POST") {
+            const body = await parseJsonBody(req);
+            await transport.handleRequest(req, res, body);
+          } else {
+            // GET (SSE stream) or DELETE (close session)
+            await transport.handleRequest(req, res);
+          }
+        } catch (error) {
+          console.error("[supermemento] Streamable HTTP error:", error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              jsonrpc: "2.0",
+              error: { code: -32603, message: "Internal server error" },
+              id: null
+            }));
+          }
+        }
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────
+
+      // ── Legacy SSE transport (/sse + /messages) ──────────────────
       if (url.pathname === "/sse" && req.method === "GET") {
         try {
           const baseUrl = process.env.PUBLIC_URL ?? `http://${req.headers.host ?? "localhost"}`;
           const transport = new SSEServerTransport(`${baseUrl}/messages`, res);
-          sessions.set(transport.sessionId, transport);
+          transports.set(transport.sessionId, transport);
           console.log(`[supermemento] New SSE session: ${transport.sessionId}`);
 
           transport.onclose = () => {
             console.log(`[supermemento] SSE session closed: ${transport.sessionId}`);
-            sessions.delete(transport.sessionId);
+            transports.delete(transport.sessionId);
           };
 
-          // Each SSE connection gets its own Server instance to handle the session
           const sessionServer = new Server(
             { name: "supermemento-mcp", version: "0.2.0" },
             { capabilities: { tools: {} } }
@@ -300,16 +419,20 @@ export class SupermementoServer {
         return;
       }
 
-      // Message endpoint — client POSTs JSON-RPC messages here
       if (url.pathname === "/messages" && req.method === "POST") {
         const sessionId = url.searchParams.get("sessionId");
-        if (!sessionId || !sessions.has(sessionId)) {
+        if (!sessionId || !transports.has(sessionId)) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "Invalid or missing sessionId" }));
           return;
         }
+        const transport = transports.get(sessionId);
+        if (!(transport instanceof SSEServerTransport)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Session uses a different transport protocol" }));
+          return;
+        }
         try {
-          const transport = sessions.get(sessionId)!;
           await transport.handlePostMessage(req, res);
         } catch (error) {
           console.error("[supermemento] Message handling error:", error);
@@ -320,6 +443,7 @@ export class SupermementoServer {
         }
         return;
       }
+      // ─────────────────────────────────────────────────────────────
 
       // ── OAuth 2.0 endpoints for Claude.ai compatibility ──────────
       const publicUrl = process.env.PUBLIC_URL ?? `http://${req.headers.host ?? "localhost"}`;
@@ -374,9 +498,10 @@ export class SupermementoServer {
     });
 
     httpServer.listen(port, host, () => {
-      console.log(`[supermemento] SSE server listening on http://${host}:${port}`);
-      console.log(`[supermemento] SSE endpoint: GET /sse`);
-      console.log(`[supermemento] Message endpoint: POST /messages`);
+      console.log(`[supermemento] Server listening on http://${host}:${port}`);
+      console.log(`[supermemento] Streamable HTTP endpoint: /mcp (GET, POST, DELETE)`);
+      console.log(`[supermemento] Legacy SSE endpoint: GET /sse`);
+      console.log(`[supermemento] Legacy message endpoint: POST /messages`);
       console.log(`[supermemento] Health: GET /health`);
     });
   }
