@@ -42,6 +42,20 @@ const createMemoryArgsSchema = z.object({
   validTo: flexibleDatetime
 });
 
+const batchMemoryItemSchema = z.object({
+  content: z.string().min(1),
+  memoryType: z.nativeEnum(MemoryType),
+  confidence: z.number().min(0).max(1).default(0.9),
+  validFrom: flexibleDatetime,
+  validTo: flexibleDatetime
+});
+
+const batchCreateMemoriesArgsSchema = z.object({
+  memories: z.array(batchMemoryItemSchema).min(1).max(50),
+  containerTag: z.string().min(1),
+  sourceDocId: z.string().uuid().optional()
+});
+
 const semanticSearchArgsSchema = z.object({
   query: z.string().min(1),
   containerTag: z.string().min(1).optional(),
@@ -519,8 +533,19 @@ export class SupermementoServer {
         {
           name: "create_memory",
           description:
-            "Create a Memory node with embedding. sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag.",
+            "Create a SINGLE Memory node. For 2+ memories use batch_create_memories instead — it is much faster. " +
+            "sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag.",
           inputSchema: zodToJsonSchema(createMemoryArgsSchema)
+        },
+        {
+          name: "batch_create_memories",
+          description:
+            "Create MULTIPLE memories at once (1-50). MUCH FASTER than calling create_memory repeatedly. " +
+            "All memories share the same containerTag. Relation classification runs async in the background. " +
+            "Use this whenever the user wants to save multiple facts, preferences, or episodes. " +
+            "Each memory item has: content (required), memoryType (fact|preference|episode|derived), " +
+            "confidence (default 0.9), validFrom (optional), validTo (optional).",
+          inputSchema: zodToJsonSchema(batchCreateMemoriesArgsSchema)
         },
         {
           name: "semantic_search",
@@ -680,14 +705,70 @@ export class SupermementoServer {
               validFrom: input.validFrom,
               validTo: input.validTo
             });
-            let relationResult = null;
-            try {
-              relationResult = await this.relationClassifierService.classifyAndApply(memory);
-            } catch (e) {
-              console.warn("[supermemento] RelationClassifier skipped:", (e as Error).message);
-            }
+            // Relation classification runs async — no longer blocks the response
+            this.relationClassifierService.classifyAndApply(memory)
+              .then((r) => console.log(`[supermemento] Async relation done: ${memory.id}`, JSON.stringify(r)))
+              .catch((e) => console.warn(`[supermemento] Async relation skipped:`, (e as Error).message));
             const { embedding: _emb, ...memoryClean } = memory;
-            return asJson({ memory: memoryClean, relationResult });
+            return asJson({ memory: memoryClean, relationClassification: "async" });
+          }
+
+          case "batch_create_memories": {
+            const input = batchCreateMemoriesArgsSchema.parse(args);
+
+            // 1. Resolve sourceDocId (catch-all document pattern)
+            let sourceDocId = input.sourceDocId;
+            if (!sourceDocId) {
+              const catchAllTitle = "Manual memories: " + input.containerTag;
+              const existing = await this.neo4jClient.listDocuments({
+                containerTag: input.containerTag,
+                status: DocumentStatus.Done,
+                limit: 200
+              });
+              const catchAll = existing.find((d) => d.title === catchAllTitle);
+              if (catchAll) {
+                sourceDocId = catchAll.id;
+              } else {
+                const newDoc = await this.neo4jClient.createDocument({
+                  title: catchAllTitle,
+                  contentType: ContentType.Text,
+                  rawContent: "Auto-created for manual memories",
+                  containerTag: input.containerTag
+                });
+                await this.neo4jClient.updateDocument(newDoc.id, { status: DocumentStatus.Done });
+                sourceDocId = newDoc.id;
+              }
+            }
+
+            // 2. Batch embedding — 1 API call for all contents
+            const contents = input.memories.map((m) => m.content);
+            const embeddings = await this.embeddingService.generateEmbeddings(contents);
+
+            // 3. Batch create memories — 1 Neo4j UNWIND transaction
+            const memoryInputs = input.memories.map((m, i) => ({
+              content: m.content,
+              memoryType: m.memoryType,
+              containerTag: input.containerTag,
+              confidence: m.confidence,
+              sourceDocId: sourceDocId!,
+              embedding: embeddings[i] ?? [],
+              validFrom: m.validFrom ?? null,
+              validTo: m.validTo ?? null
+            } as Parameters<typeof this.neo4jClient.batchCreateMemories>[0][number]));
+            const createdMemories = await this.neo4jClient.batchCreateMemories(memoryInputs);
+
+            // 4. Batch relation classification — async fire-and-forget
+            this.relationClassifierService.batchClassifyAndApply(createdMemories)
+              .then(() => console.log(`[supermemento] Batch async relation done: ${createdMemories.length} memories`))
+              .catch((e) => console.warn(`[supermemento] Batch async relation skipped:`, (e as Error).message));
+
+            // 5. Return cleaned results (strip embedding vectors)
+            const cleaned = createdMemories.map(({ embedding: _emb, ...rest }) => rest);
+            return asJson({
+              count: cleaned.length,
+              memories: cleaned,
+              message: `${cleaned.length} memories created. Relation classification running in background.`
+            });
           }
 
           case "semantic_search": {

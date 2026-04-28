@@ -316,6 +316,63 @@ export class Neo4jClient {
   }
 
   /**
+   * Creates many memories in a single write transaction using UNWIND.
+   * All memories must share the same sourceDocId.
+   * @param inputs Memory payloads.
+   */
+  public async batchCreateMemories(inputs: MemoryCreateInput[]): Promise<Memory[]> {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    const now = new Date().toISOString();
+    const rows = inputs.map((input) => ({
+      id: uuidv4(),
+      content: input.content,
+      memoryType: input.memoryType,
+      containerTag: input.containerTag,
+      confidence: input.confidence,
+      embedding: input.embedding,
+      validFrom: input.validFrom ?? null,
+      validTo: input.validTo ?? null,
+      createdAt: now,
+      sourceDocId: input.sourceDocId
+    }));
+
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        UNWIND $rows AS row
+        MATCH (d:Document {id: row.sourceDocId})
+        CREATE (m:Memory {
+          id: row.id,
+          content: row.content,
+          memoryType: row.memoryType,
+          containerTag: row.containerTag,
+          isLatest: true,
+          confidence: row.confidence,
+          originalConfidence: NULL,
+          embedding: row.embedding,
+          validFrom: CASE WHEN row.validFrom IS NULL THEN NULL ELSE datetime(row.validFrom) END,
+          validTo: CASE WHEN row.validTo IS NULL THEN NULL ELSE datetime(row.validTo) END,
+          forgottenAt: NULL,
+          createdAt: datetime(row.createdAt),
+          sourceDocId: row.sourceDocId
+        })
+        CREATE (m)-[:EXTRACTED_FROM]->(d)
+        RETURN m
+        `,
+        { rows }
+      );
+
+      return result.records.map((record) => this.mapMemory(record.get("m")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Creates a derived memory and DERIVES links to each source memory.
    * @param params Derived memory payload.
    */
