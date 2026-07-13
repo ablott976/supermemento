@@ -370,4 +370,39 @@ describe("RelationClassifierService response normalization", () => {
     assert.equal(result.candidateCount, 0);
     assert.equal(searchOptions?.asOf, newMemory.createdAt);
   });
+
+  it("corrects a unique one-character UUID transcription error", async () => {
+    const candidateId = "44dd897a-99a1-45df-8065-975afc1eb2d8";
+    const response = JSON.stringify({
+      relations: [{
+        existingMemoryId: "44dd897a-9a1-45df-8065-975afc1eb2d8",
+        relationType: "EXTEND",
+        confidence: 0.9
+      }]
+    });
+    const service = makeService(response);
+    const result = await service.classify(
+      makeMemory("new", "New fact"),
+      [makeMemory(candidateId, "Existing fact")]
+    );
+    assert.equal(result.relations[0].existingMemoryId, candidateId);
+  });
+
+  it("rejects ambiguous one-character UUID corrections", async () => {
+    const response = JSON.stringify({
+      relations: [{
+        existingMemoryId: "44dd897a-9a1-45df-8065-975afc1eb2d8",
+        relationType: "EXTEND",
+        confidence: 0.9
+      }]
+    });
+    const service = makeService(response);
+    await assert.rejects(
+      service.classify(makeMemory("new", "New fact"), [
+        makeMemory("44dd897a-99a1-45df-8065-975afc1eb2d8", "First"),
+        makeMemory("44dd897a-a9a1-45df-8065-975afc1eb2d8", "Second")
+      ]),
+      /unknown existingMemoryId/
+    );
+  });
 });

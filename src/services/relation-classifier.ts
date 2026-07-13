@@ -490,6 +490,47 @@ export class RelationClassifierService {
       return byContent.id;
     }
 
+    const nearUuidMatches = candidates.filter((candidate) =>
+      this.isSingleEditAway(value, candidate.id)
+    );
+    if (nearUuidMatches.length === 1) {
+      return nearUuidMatches[0]!.id;
+    }
+
     throw new Error(`Classifier returned unknown existingMemoryId: ${value}`);
+  }
+
+  private isSingleEditAway(left: string, right: string): boolean {
+    if (Math.abs(left.length - right.length) > 1) {
+      return false;
+    }
+
+    let leftIndex = 0;
+    let rightIndex = 0;
+    let edits = 0;
+    while (leftIndex < left.length && rightIndex < right.length) {
+      if (left.charAt(leftIndex) === right.charAt(rightIndex)) {
+        leftIndex += 1;
+        rightIndex += 1;
+        continue;
+      }
+      edits += 1;
+      if (edits > 1) {
+        return false;
+      }
+      if (left.length > right.length) {
+        leftIndex += 1;
+      } else if (right.length > left.length) {
+        rightIndex += 1;
+      } else {
+        leftIndex += 1;
+        rightIndex += 1;
+      }
+    }
+
+    if (leftIndex < left.length || rightIndex < right.length) {
+      edits += 1;
+    }
+    return edits === 1;
   }
 }
