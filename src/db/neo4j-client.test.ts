@@ -98,6 +98,11 @@ describe("Neo4jClient repair relation idempotency", () => {
         if (query.includes("vector.similarity.cosine")) {
           exactFallbacks += 1;
           assert.match(query, /MATCH \(node:Memory \{containerTag: \$containerTag\}\)/);
+          assert.match(query, /size\(node\.embedding\) = size\(\$embedding\)/);
+          assert.ok(
+            query.indexOf("size(node.embedding) = size($embedding)")
+              < query.indexOf("vector.similarity.cosine")
+          );
           assert.match(query, /node\.containerTag = \$containerTag/);
           assert.match(query, /node\.createdAt <= datetime\(\$asOf\)/);
           assert.match(query, /node\.validFrom IS NULL/);
