@@ -36,6 +36,26 @@ function counters(nodesDeleted = 0, relationshipsCreated = 0) {
   };
 }
 
+function memoryRecord(id: string, score: number, content = "Historical fact") {
+  return {
+    get: (key: string) => key === "score"
+      ? score
+      : {
+        properties: {
+          id,
+          content,
+          memoryType: "fact",
+          containerTag: "test",
+          isLatest: true,
+          confidence: 0.9,
+          embedding: [0.1, 0.2],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          sourceDocId: "document-1"
+        }
+      }
+  };
+}
+
 describe("Neo4jClient repair relation idempotency", () => {
   it("expands historical vector search past newer filtered candidates", async () => {
     const vectorLimits: number[] = [];
@@ -44,30 +64,15 @@ describe("Neo4jClient repair relation idempotency", () => {
         if (query.includes("count(node) AS count")) {
           return { records: [{ get: () => 250 }] };
         }
+        if (query.includes("vector.similarity.cosine")) {
+          return { records: [memoryRecord("historical-memory", 0.91)] };
+        }
         const vectorLimit = Number(String(params.vectorLimit));
         vectorLimits.push(vectorLimit);
         if (vectorLimit < 250) {
           return { records: [] };
         }
-        return {
-          records: [{
-            get: (key: string) => key === "score"
-              ? 0.91
-              : {
-                properties: {
-                  id: "historical-memory",
-                  content: "Historical fact",
-                  memoryType: "fact",
-                  containerTag: "test",
-                  isLatest: true,
-                  confidence: 0.9,
-                  embedding: [0.1, 0.2],
-                  createdAt: "2026-01-01T00:00:00.000Z",
-                  sourceDocId: "document-1"
-                }
-              }
-          }]
-        };
+        return { records: [memoryRecord("historical-memory", 0.91)] };
       },
       close: async () => undefined
     });
@@ -80,6 +85,102 @@ describe("Neo4jClient repair relation idempotency", () => {
 
     assert.deepEqual(vectorLimits, [100, 200, 250]);
     assert.equal(result[0]?.memory.id, "historical-memory");
+  });
+
+  it("falls back to exact similarity when the approximate historical index underfills", async () => {
+    const vectorLimits: number[] = [];
+    let exactFallbacks = 0;
+    const client = clientWithSession({
+      run: async (query, params = {}) => {
+        if (query.includes("count(node) AS count")) {
+          return { records: [{ get: () => 250 }] };
+        }
+        if (query.includes("vector.similarity.cosine")) {
+          exactFallbacks += 1;
+          assert.match(query, /MATCH \(node:Memory \{containerTag: \$containerTag\}\)/);
+          assert.match(query, /node\.containerTag = \$containerTag/);
+          assert.match(query, /node\.createdAt <= datetime\(\$asOf\)/);
+          assert.match(query, /node\.validFrom IS NULL/);
+          assert.match(query, /node\.validTo IS NULL/);
+          assert.match(query, /node\.forgottenAt > datetime\(\$asOf\)/);
+          assert.match(query, /\$isLatestOnly = false/);
+          assert.match(query, /score >= \$minScore/);
+          return {
+            records: [memoryRecord(
+              "exact-historical-memory",
+              0.88,
+              "Historical fact outside the approximate neighborhood"
+            )]
+          };
+        }
+        vectorLimits.push(Number(String(params.vectorLimit)));
+        return { records: [] };
+      },
+      close: async () => undefined
+    });
+
+    const result = await client.semanticSearchMemories({
+      embedding: [0.1, 0.2],
+      containerTag: "test",
+      minScore: 0.8,
+      asOf: "2026-01-02T00:00:00.000Z",
+      limit: 10
+    });
+
+    assert.deepEqual(vectorLimits, [100, 200, 250]);
+    assert.equal(exactFallbacks, 1);
+    assert.equal(result[0]?.memory.id, "exact-historical-memory");
+  });
+
+  it("keeps the exact fallback behind every historical underfill gate", async () => {
+    const cases = [
+      {
+        name: "missing asOf",
+        params: { containerTag: "test" },
+        approximateRecords: []
+      },
+      {
+        name: "missing containerTag",
+        params: { asOf: "2026-01-02T00:00:00.000Z" },
+        approximateRecords: []
+      },
+      {
+        name: "approximate search already full",
+        params: {
+          asOf: "2026-01-02T00:00:00.000Z",
+          containerTag: "test"
+        },
+        approximateRecords: Array.from(
+          { length: 10 },
+          (_, index) => memoryRecord(`approximate-${index}`, 0.9 - index / 100)
+        )
+      }
+    ];
+
+    for (const testCase of cases) {
+      let exactFallbacks = 0;
+      const client = clientWithSession({
+        run: async (query) => {
+          if (query.includes("count(node) AS count")) {
+            return { records: [{ get: () => 1 }] };
+          }
+          if (query.includes("vector.similarity.cosine")) {
+            exactFallbacks += 1;
+          }
+          return { records: testCase.approximateRecords };
+        },
+        close: async () => undefined
+      });
+
+      await client.semanticSearchMemories({
+        embedding: [0.1, 0.2],
+        minScore: 0.8,
+        limit: 10,
+        ...testCase.params
+      });
+
+      assert.equal(exactFallbacks, 0, testCase.name);
+    }
   });
 
   it("preserves EXTENDS evidence before deleting generated memories", async () => {
