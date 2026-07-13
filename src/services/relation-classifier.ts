@@ -146,12 +146,12 @@ export class RelationClassifierService {
         const targetMemory = filteredCandidates
           .map((candidate) => candidate.memory)
           .find((candidate) => candidate.id === relation.existingMemoryId);
-        await this.neo4jClient.createMemoryRelation(
+        const relationCreated = await this.neo4jClient.createMemoryRelation(
           newMemory.id,
           relation.existingMemoryId,
           RelationType.Extends
         );
-        if (targetMemory?.memoryType === MemoryType.Preference) {
+        if (relationCreated && targetMemory?.memoryType === MemoryType.Preference) {
           await this.forgettingService.reinforcePreference(targetMemory.id);
         }
         applied.push({ relationType: "EXTEND", existingMemoryId: relation.existingMemoryId });
@@ -243,12 +243,12 @@ export class RelationClassifierService {
           const targetMemory = cands
             .map((c) => c.memory)
             .find((c) => c.id === relation.existingMemoryId);
-          await this.neo4jClient.createMemoryRelation(
+          const relationCreated = await this.neo4jClient.createMemoryRelation(
             mem.id,
             relation.existingMemoryId,
             RelationType.Extends
           );
-          if (targetMemory?.memoryType === MemoryType.Preference) {
+          if (relationCreated && targetMemory?.memoryType === MemoryType.Preference) {
             await this.forgettingService.reinforcePreference(targetMemory.id);
           }
           continue;

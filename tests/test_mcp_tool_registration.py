@@ -6,6 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NEO4J_CLIENT_PATH = REPO_ROOT / "src" / "db" / "neo4j-client.ts"
 SERVER_PATH = REPO_ROOT / "src" / "server.ts"
+REPAIR_CLI_PATH = REPO_ROOT / "src" / "admin" / "repair-knowledge.ts"
 
 
 def _read(path: Path) -> str:
@@ -105,3 +106,13 @@ def test_existing_core_tools_remain_registered() -> None:
         'name: "setup_schema"',
     ]:
         assert tool_name in server_source
+
+
+def test_repair_operations_remain_admin_only() -> None:
+    server_source = _read(SERVER_PATH)
+    repair_source = _read(REPAIR_CLI_PATH)
+
+    assert 'name: "reprocess_document"' not in server_source
+    assert 'name: "reclassify_memory"' not in server_source
+    assert "prepareDocumentForReprocessing" in repair_source
+    assert "classifyAndApply" in repair_source

@@ -69,50 +69,54 @@ export class MemoryExtractorService {
       2
     );
 
+    let response;
     try {
-      const response = await this.anthropic.messages.create({
+      response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 4096,
         system: EXTRACTION_SYSTEM_PROMPT,
         messages: [{ role: "user", content: userPrompt }]
       });
+    } catch (apiError) {
+      const status = (apiError as { status?: unknown }).status;
+      const suffix = typeof status === "number" ? ` (HTTP ${status})` : "";
+      throw new Error(`Anthropic extraction request failed${suffix}`);
+    }
 
-      const combinedText = response.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("\n");
+    const combinedText = response.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
 
-      const jsonData = this.extractJson(combinedText);
-      if (!jsonData) {
-        console.warn("[extractor] Failed to parse JSON from Anthropic response, returning empty memories");
-        console.warn("[extractor] Raw response (first 500 chars):", combinedText.substring(0, 500));
-        return [];
-      }
+    const jsonData = this.extractJson(combinedText);
+    if (!jsonData) {
+      throw new Error("Anthropic extraction response was not valid JSON");
+    }
 
-      try {
-        const parsed = extractionResponseSchema.parse(jsonData);
-        return parsed.memories;
-      } catch (zodError) {
-        console.warn("[extractor] Zod validation failed, attempting lenient parse:", (zodError as Error).message);
-        // Try lenient parse: accept any structure with a memories array
-        if (jsonData && typeof jsonData === "object" && "memories" in (jsonData as Record<string, unknown>) && Array.isArray((jsonData as Record<string, unknown>).memories)) {
-          const memories = (jsonData as { memories: unknown[] }).memories;
-          const validMemories: ExtractedMemory[] = [];
-          for (const m of memories) {
-            try {
-              validMemories.push(extractedMemorySchema.parse(m));
-            } catch {
-              // Skip invalid individual memories
-            }
+    try {
+      const parsed = extractionResponseSchema.parse(jsonData);
+      return parsed.memories;
+    } catch {
+      if (
+        jsonData &&
+        typeof jsonData === "object" &&
+        "memories" in (jsonData as Record<string, unknown>) &&
+        Array.isArray((jsonData as Record<string, unknown>).memories)
+      ) {
+        const memories = (jsonData as { memories: unknown[] }).memories;
+        const validMemories: ExtractedMemory[] = [];
+        for (const memory of memories) {
+          const parsedMemory = extractedMemorySchema.safeParse(memory);
+          if (parsedMemory.success) {
+            validMemories.push(parsedMemory.data);
           }
+        }
+        if (validMemories.length > 0) {
           console.log(`[extractor] Lenient parse recovered ${validMemories.length}/${memories.length} memories`);
           return validMemories;
         }
-        return [];
       }
-    } catch (apiError) {
-      console.error("[extractor] Anthropic API error:", (apiError as Error).message);
-      return [];
+      throw new Error("Anthropic extraction response failed schema validation");
     }
   }
 
