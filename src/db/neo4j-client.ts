@@ -305,6 +305,15 @@ export class Neo4jClient {
           );
         }
 
+        await tx.run(
+          `
+          MATCH (d:Document {id: $documentId})
+          MATCH (m:Memory)-[:EXTRACTED_FROM]->(d)
+          MATCH (m)-[:EXTENDS]->(target:Memory)
+          MERGE (d)-[:REPAIR_EXTENDS]->(target)
+          `,
+          { documentId }
+        );
         const memoryCleanup = await tx.run(
           `
           MATCH (m:Memory)-[:EXTRACTED_FROM]->(:Document {id: $documentId})
@@ -357,9 +366,11 @@ export class Neo4jClient {
       const result = await session.run(
         `
         MATCH (d:Document {id: $documentId, repairRunId: $repairId})
+        OPTIONAL MATCH (d)-[preserved:REPAIR_EXTENDS]->(:Memory)
+        DELETE preserved
         REMOVE d.repairRunId, d.repairLeaseUntil, d.repairLockVersion
         SET d.updatedAt = datetime($updatedAt)
-        RETURN d
+        RETURN DISTINCT d
         `,
         { documentId, repairId, updatedAt: new Date().toISOString() }
       );
@@ -1350,11 +1361,14 @@ export class Neo4jClient {
         MATCH (to:Memory {id: $toMemoryId})
         OPTIONAL MATCH (from)-[existing:${relationType}]->(to)
         WITH from, to, count(existing) AS existingCount
+        OPTIONAL MATCH (source:Document)-[preserved:REPAIR_EXTENDS]->(to)
+        WHERE $checkRepairMarker AND source.id = from.sourceDocId
+        WITH from, to, existingCount, count(preserved) > 0 AS preservedFromRepair
         MERGE (from)-[r:${relationType}]->(to)
         FOREACH (_ IN CASE WHEN $markTargetNotLatest THEN [1] ELSE [] END |
           SET to.isLatest = false
         )
-        FOREACH (_ IN CASE WHEN $reinforceTargetPreference AND existingCount = 0 THEN [1] ELSE [] END |
+        FOREACH (_ IN CASE WHEN $reinforceTargetPreference AND existingCount = 0 AND NOT preservedFromRepair THEN [1] ELSE [] END |
           SET to.originalConfidence = coalesce(to.originalConfidence, to.confidence),
               to.confidence = CASE
                 WHEN coalesce(to.confidence, 0) + 0.15 > 1 THEN 1
@@ -1367,6 +1381,7 @@ export class Neo4jClient {
         {
           fromMemoryId,
           toMemoryId,
+          checkRepairMarker: relationType === RelationType.Extends,
           markTargetNotLatest: options.markTargetNotLatest ?? false,
           reinforceTargetPreference: options.reinforceTargetPreference ?? false
         }
