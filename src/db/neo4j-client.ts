@@ -836,6 +836,7 @@ export class Neo4jClient {
           `
           MATCH (node:Memory {containerTag: $containerTag})
           WHERE node.embedding IS NOT NULL
+            AND size(node.embedding) = size($embedding)
           WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
           ${memoryFilters}
           RETURN node, score
