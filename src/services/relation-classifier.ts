@@ -107,7 +107,10 @@ export class RelationClassifierService {
    * Classifies relations for a new memory and applies resulting graph updates.
    * @param newMemory Newly created memory.
    */
-  public async classifyAndApply(newMemory: Memory): Promise<{
+  public async classifyAndApply(
+    newMemory: Memory,
+    options: { asOf?: string } = {}
+  ): Promise<{
     candidateCount: number;
     applied: Array<{ relationType: string; existingMemoryId?: string; derivedMemoryId?: string }>;
   }> {
@@ -116,7 +119,8 @@ export class RelationClassifierService {
       containerTag: newMemory.containerTag,
       minScore: 0.75,
       limit: 10,
-      isLatestOnly: true
+      isLatestOnly: true,
+      asOf: options.asOf
     });
 
     const filteredCandidates = candidates
@@ -135,9 +139,9 @@ export class RelationClassifierService {
         await this.neo4jClient.createMemoryRelation(
           newMemory.id,
           relation.existingMemoryId,
-          RelationType.Updates
+          RelationType.Updates,
+          { markTargetNotLatest: true }
         );
-        await this.neo4jClient.markMemoryNotLatest(relation.existingMemoryId);
         applied.push({ relationType: "UPDATE", existingMemoryId: relation.existingMemoryId });
         continue;
       }
@@ -146,14 +150,12 @@ export class RelationClassifierService {
         const targetMemory = filteredCandidates
           .map((candidate) => candidate.memory)
           .find((candidate) => candidate.id === relation.existingMemoryId);
-        const relationCreated = await this.neo4jClient.createMemoryRelation(
+        await this.neo4jClient.createMemoryRelation(
           newMemory.id,
           relation.existingMemoryId,
-          RelationType.Extends
+          RelationType.Extends,
+          { reinforceTargetPreference: targetMemory?.memoryType === MemoryType.Preference }
         );
-        if (relationCreated && targetMemory?.memoryType === MemoryType.Preference) {
-          await this.forgettingService.reinforcePreference(targetMemory.id);
-        }
         applied.push({ relationType: "EXTEND", existingMemoryId: relation.existingMemoryId });
         continue;
       }
@@ -233,9 +235,9 @@ export class RelationClassifierService {
           await this.neo4jClient.createMemoryRelation(
             mem.id,
             relation.existingMemoryId,
-            RelationType.Updates
+            RelationType.Updates,
+            { markTargetNotLatest: true }
           );
-          await this.neo4jClient.markMemoryNotLatest(relation.existingMemoryId);
           continue;
         }
 
@@ -243,14 +245,12 @@ export class RelationClassifierService {
           const targetMemory = cands
             .map((c) => c.memory)
             .find((c) => c.id === relation.existingMemoryId);
-          const relationCreated = await this.neo4jClient.createMemoryRelation(
+          await this.neo4jClient.createMemoryRelation(
             mem.id,
             relation.existingMemoryId,
-            RelationType.Extends
+            RelationType.Extends,
+            { reinforceTargetPreference: targetMemory?.memoryType === MemoryType.Preference }
           );
-          if (relationCreated && targetMemory?.memoryType === MemoryType.Preference) {
-            await this.forgettingService.reinforcePreference(targetMemory.id);
-          }
           continue;
         }
 

@@ -33,7 +33,9 @@ async function main(): Promise<void> {
       if (!memory) {
         throw new Error(`Memory not found: ${id}`);
       }
-      const result = await relationClassifierService.classifyAndApply(memory);
+      const result = await relationClassifierService.classifyAndApply(memory, {
+        asOf: memory.createdAt
+      });
       console.log(JSON.stringify({
         command,
         memoryId: id,

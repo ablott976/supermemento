@@ -745,6 +745,7 @@ export class Neo4jClient {
     minScore?: number;
     limit?: number;
     isLatestOnly?: boolean;
+    asOf?: string;
   }): Promise<MemorySearchHit[]> {
     const session = this.driver.session();
     const limit = params.limit ?? 10;
@@ -758,9 +759,24 @@ export class Neo4jClient {
         CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
         YIELD node, score
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
-          AND ($isLatestOnly = false OR node.isLatest = true)
-          AND node.forgottenAt IS NULL
-          AND (node.validTo IS NULL OR node.validTo >= datetime())
+          AND ($asOf IS NULL OR node.createdAt <= datetime($asOf))
+          AND ($asOf IS NULL OR node.validFrom IS NULL OR node.validFrom <= datetime($asOf))
+          AND (
+            ($asOf IS NULL AND node.forgottenAt IS NULL)
+            OR ($asOf IS NOT NULL AND (node.forgottenAt IS NULL OR node.forgottenAt > datetime($asOf)))
+          )
+          AND (
+            ($asOf IS NULL AND (node.validTo IS NULL OR node.validTo >= datetime()))
+            OR ($asOf IS NOT NULL AND (node.validTo IS NULL OR node.validTo >= datetime($asOf)))
+          )
+          AND (
+            $isLatestOnly = false
+            OR ($asOf IS NULL AND node.isLatest = true)
+            OR ($asOf IS NOT NULL AND NOT EXISTS {
+              MATCH (superseding:Memory)-[:UPDATES]->(node)
+              WHERE superseding.createdAt <= datetime($asOf)
+            })
+          )
           AND score >= $minScore
         RETURN node, score
         ORDER BY score DESC
@@ -772,7 +788,8 @@ export class Neo4jClient {
           embedding: params.embedding,
           containerTag: params.containerTag ?? null,
           minScore: params.minScore ?? 0,
-          isLatestOnly: params.isLatestOnly ?? false
+          isLatestOnly: params.isLatestOnly ?? false,
+          asOf: params.asOf ?? null
         }
       );
 
@@ -1305,15 +1322,17 @@ export class Neo4jClient {
   }
 
   /**
-   * Creates a relation between two memories.
+   * Creates a relation between two memories and applies its target-side effect atomically.
    * @param fromMemoryId Source memory id.
    * @param toMemoryId Target memory id.
    * @param relationType Neo4j relation type.
+   * @param options Optional target mutation guarded by relation creation.
    */
   public async createMemoryRelation(
     fromMemoryId: string,
     toMemoryId: string,
-    relationType: RelationType
+    relationType: RelationType,
+    options: { markTargetNotLatest?: boolean; reinforceTargetPreference?: boolean } = {}
   ): Promise<boolean> {
     if (
       relationType !== RelationType.Updates &&
@@ -1329,12 +1348,30 @@ export class Neo4jClient {
         `
         MATCH (from:Memory {id: $fromMemoryId})
         MATCH (to:Memory {id: $toMemoryId})
+        OPTIONAL MATCH (from)-[existing:${relationType}]->(to)
+        WITH from, to, count(existing) AS existingCount
         MERGE (from)-[r:${relationType}]->(to)
-        RETURN r
+        FOREACH (_ IN CASE WHEN $markTargetNotLatest THEN [1] ELSE [] END |
+          SET to.isLatest = false
+        )
+        FOREACH (_ IN CASE WHEN $reinforceTargetPreference AND existingCount = 0 THEN [1] ELSE [] END |
+          SET to.originalConfidence = coalesce(to.originalConfidence, to.confidence),
+              to.confidence = CASE
+                WHEN coalesce(to.confidence, 0) + 0.15 > 1 THEN 1
+                ELSE coalesce(to.confidence, 0) + 0.15
+              END,
+              to.lastReinforcedAt = datetime()
+        )
+        RETURN existingCount = 0 AS created
         `,
-        { fromMemoryId, toMemoryId }
+        {
+          fromMemoryId,
+          toMemoryId,
+          markTargetNotLatest: options.markTargetNotLatest ?? false,
+          reinforceTargetPreference: options.reinforceTargetPreference ?? false
+        }
       );
-      return result.summary.counters.updates().relationshipsCreated > 0;
+      return Boolean(result.records[0]?.get("created"));
     } finally {
       await session.close();
     }
