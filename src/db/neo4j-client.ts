@@ -760,12 +760,27 @@ export class Neo4jClient {
   }): Promise<MemorySearchHit[]> {
     const session = this.driver.session();
     const limit = params.limit ?? 10;
-    // When filtering by containerTag, fetch more candidates from the vector index
-    // to compensate for post-filter reduction
-    const vectorLimit = params.containerTag ? limit * 10 : limit;
+    // Historical and container filters run after the vector index ranks nodes.
+    // Start with an overfetch and, for historical repair, expand only as needed
+    // until enough valid hits are found or every indexed memory was considered.
+    let vectorLimit = params.containerTag || params.asOf ? limit * 10 : limit;
+    let maximumVectorLimit = vectorLimit;
 
     try {
-      const result = await session.run(
+      if (params.asOf) {
+        const countResult = await session.run(
+          "MATCH (node:Memory) WHERE node.embedding IS NOT NULL RETURN count(node) AS count"
+        );
+        const countValue = countResult.records[0]?.get("count");
+        const indexedMemoryCount = neo4j.isInt(countValue)
+          ? countValue.toNumber()
+          : Number(countValue ?? 0);
+        if (Number.isFinite(indexedMemoryCount)) {
+          maximumVectorLimit = Math.max(vectorLimit, indexedMemoryCount);
+        }
+      }
+
+      const runSearch = () => session.run(
         `
         CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
         YIELD node, score
@@ -803,6 +818,16 @@ export class Neo4jClient {
           asOf: params.asOf ?? null
         }
       );
+
+      let result = await runSearch();
+      while (
+        params.asOf &&
+        result.records.length < limit &&
+        vectorLimit < maximumVectorLimit
+      ) {
+        vectorLimit = Math.min(maximumVectorLimit, vectorLimit * 2);
+        result = await runSearch();
+      }
 
       return result.records.map((record) => ({
         memory: this.mapMemory(record.get("node")),
@@ -1368,7 +1393,7 @@ export class Neo4jClient {
         FOREACH (_ IN CASE WHEN $markTargetNotLatest THEN [1] ELSE [] END |
           SET to.isLatest = false
         )
-        FOREACH (_ IN CASE WHEN $reinforceTargetPreference AND existingCount = 0 AND NOT preservedFromRepair THEN [1] ELSE [] END |
+        FOREACH (_ IN CASE WHEN $reinforceTargetPreference AND existingCount = 0 AND NOT preservedFromRepair AND to.forgottenAt IS NULL THEN [1] ELSE [] END |
           SET to.originalConfidence = coalesce(to.originalConfidence, to.confidence),
               to.confidence = CASE
                 WHEN coalesce(to.confidence, 0) + 0.15 > 1 THEN 1

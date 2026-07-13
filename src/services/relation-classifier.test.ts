@@ -405,4 +405,38 @@ describe("RelationClassifierService response normalization", () => {
       /unknown existingMemoryId/
     );
   });
+
+  it("does not repair a batch UUID against another entry's candidates", async () => {
+    const response = JSON.stringify({
+      classifications: [{
+        newMemoryId: "new-a",
+        relations: [{
+          existingMemoryId: "44dd897a-9a1-45df-8065-975afc1eb2d8",
+          relationType: "EXTEND",
+          confidence: 0.9
+        }]
+      }]
+    });
+    const service = makeService(response);
+
+    await assert.rejects(
+      service.batchClassify([
+        {
+          newMemory: makeMemory("new-a", "First new fact"),
+          candidates: [{
+            memory: makeMemory("11111111-1111-4111-8111-111111111111", "First candidate"),
+            score: 0.9
+          }]
+        },
+        {
+          newMemory: makeMemory("new-b", "Second new fact"),
+          candidates: [{
+            memory: makeMemory("44dd897a-99a1-45df-8065-975afc1eb2d8", "Second candidate"),
+            score: 0.9
+          }]
+        }
+      ]),
+      /unknown existingMemoryId/
+    );
+  });
 });

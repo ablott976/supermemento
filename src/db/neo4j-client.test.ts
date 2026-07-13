@@ -37,6 +37,51 @@ function counters(nodesDeleted = 0, relationshipsCreated = 0) {
 }
 
 describe("Neo4jClient repair relation idempotency", () => {
+  it("expands historical vector search past newer filtered candidates", async () => {
+    const vectorLimits: number[] = [];
+    const client = clientWithSession({
+      run: async (query, params = {}) => {
+        if (query.includes("count(node) AS count")) {
+          return { records: [{ get: () => 250 }] };
+        }
+        const vectorLimit = Number(String(params.vectorLimit));
+        vectorLimits.push(vectorLimit);
+        if (vectorLimit < 250) {
+          return { records: [] };
+        }
+        return {
+          records: [{
+            get: (key: string) => key === "score"
+              ? 0.91
+              : {
+                properties: {
+                  id: "historical-memory",
+                  content: "Historical fact",
+                  memoryType: "fact",
+                  containerTag: "test",
+                  isLatest: true,
+                  confidence: 0.9,
+                  embedding: [0.1, 0.2],
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  sourceDocId: "document-1"
+                }
+              }
+          }]
+        };
+      },
+      close: async () => undefined
+    });
+
+    const result = await client.semanticSearchMemories({
+      embedding: [0.1, 0.2],
+      asOf: "2026-01-02T00:00:00.000Z",
+      limit: 10
+    });
+
+    assert.deepEqual(vectorLimits, [100, 200, 250]);
+    assert.equal(result[0]?.memory.id, "historical-memory");
+  });
+
   it("preserves EXTENDS evidence before deleting generated memories", async () => {
     const queries: string[] = [];
     const transaction = {
@@ -116,6 +161,7 @@ describe("Neo4jClient repair relation idempotency", () => {
     );
     assert.match(queries[0] ?? "", /source\.id = from\.sourceDocId/);
     assert.match(queries[0] ?? "", /NOT preservedFromRepair/);
+    assert.match(queries[0] ?? "", /to\.forgottenAt IS NULL/);
     assert.equal(parameters[0]?.checkRepairMarker, true);
     assert.equal(parameters[0]?.reinforceTargetPreference, true);
 
