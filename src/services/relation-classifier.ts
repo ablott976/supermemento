@@ -331,7 +331,7 @@ export class RelationClassifierService {
   ): Promise<z.infer<typeof responseSchema>> {
     const response = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 1000,
+      max_tokens: 4000,
       system: CLASSIFICATION_SYSTEM_PROMPT,
       messages: [
         {
