@@ -780,10 +780,7 @@ export class Neo4jClient {
         }
       }
 
-      const runSearch = () => session.run(
-        `
-        CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
-        YIELD node, score
+      const memoryFilters = `
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND ($asOf IS NULL OR node.createdAt <= datetime($asOf))
           AND ($asOf IS NULL OR node.validFrom IS NULL OR node.validFrom <= datetime($asOf))
@@ -804,6 +801,12 @@ export class Neo4jClient {
             })
           )
           AND score >= $minScore
+      `;
+      const runSearch = () => session.run(
+        `
+        CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
+        YIELD node, score
+        ${memoryFilters}
         RETURN node, score
         ORDER BY score DESC
         LIMIT $limit
@@ -827,6 +830,27 @@ export class Neo4jClient {
       ) {
         vectorLimit = Math.min(maximumVectorLimit, vectorLimit * 2);
         result = await runSearch();
+      }
+      if (params.asOf && params.containerTag && result.records.length < limit) {
+        result = await session.run(
+          `
+          MATCH (node:Memory {containerTag: $containerTag})
+          WHERE node.embedding IS NOT NULL
+          WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
+          ${memoryFilters}
+          RETURN node, score
+          ORDER BY score DESC
+          LIMIT $limit
+          `,
+          {
+            limit: neo4j.int(limit),
+            embedding: params.embedding,
+            containerTag: params.containerTag ?? null,
+            minScore: params.minScore ?? 0,
+            isLatestOnly: params.isLatestOnly ?? false,
+            asOf: params.asOf
+          }
+        );
       }
 
       return result.records.map((record) => ({
