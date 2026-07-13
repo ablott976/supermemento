@@ -272,13 +272,12 @@ export class RelationClassifierService {
   private async batchClassify(
     entries: Array<{ newMemory: Memory; candidates: Array<{ memory: Memory; score: number }> }>
   ): Promise<z.infer<typeof batchResponseSchema>> {
-    // Build a flat map of all candidate memories for ID resolution later
-    const allCandidateMemories = new Map<string, Memory>();
-    for (const entry of entries) {
-      for (const c of entry.candidates) {
-        allCandidateMemories.set(c.memory.id, c.memory);
-      }
-    }
+    const candidatesByNewMemoryId = new Map(
+      entries.map((entry) => [
+        entry.newMemory.id,
+        entry.candidates.map((candidate) => candidate.memory)
+      ])
+    );
 
     const response = await this.anthropic.messages.create({
       model: this.model,
@@ -318,7 +317,7 @@ export class RelationClassifierService {
           ...rel,
           existingMemoryId: this.resolveExistingMemoryId(
             rel.existingMemoryId,
-            Array.from(allCandidateMemories.values())
+            candidatesByNewMemoryId.get(cls.newMemoryId) ?? []
           )
         }))
       }))
