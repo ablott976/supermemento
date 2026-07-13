@@ -138,6 +138,34 @@ describe("RelationClassifierService response normalization", () => {
     ]);
   });
 
+  it("accepts and removes a blank derivedFact for a non-DERIVE relation", async () => {
+    const response = JSON.stringify({
+      relations: [
+        {
+          existingMemoryId: "existing",
+          relationType: "UPDATE",
+          confidence: 0.87,
+          derivedFact: "   "
+        }
+      ]
+    });
+    const service = makeService(response);
+
+    const result = await service.classify(
+      makeMemory("new", "Replacement fact"),
+      [makeMemory("existing", "Existing fact")]
+    );
+
+    assert.deepEqual(result.relations, [
+      {
+        existingMemoryId: "existing",
+        relationType: "UPDATE",
+        confidence: 0.87,
+        derivedFact: undefined
+      }
+    ]);
+  });
+
   it("does not treat literal code fences inside valid JSON as an outer wrapper", () => {
     const service = makeService();
     const expected = {
