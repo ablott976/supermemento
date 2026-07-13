@@ -269,4 +269,53 @@ describe("RelationClassifierService response normalization", () => {
       /derivedFact/
     );
   });
+
+  it("does not reinforce a preference when an EXTEND relation already existed", async () => {
+    const existing = {
+      ...makeMemory("existing", "Existing preference"),
+      memoryType: MemoryType.Preference
+    };
+    const newMemory = makeMemory("new", "Additional preference detail");
+    let reinforcementCount = 0;
+    const neo4jClient = {
+      semanticSearchMemories: async () => [{ memory: existing, score: 0.9 }],
+      createMemoryRelation: async () => false
+    };
+    const forgettingService = {
+      reinforcePreference: async () => {
+        reinforcementCount += 1;
+        return true;
+      }
+    };
+    const service = new RelationClassifierService(
+      {
+        ANTHROPIC_API_KEY: "test-key",
+        ANTHROPIC_MODEL: "test-model"
+      } as AppConfig,
+      neo4jClient as never,
+      {} as never,
+      forgettingService as never
+    ) as unknown as RelationClassifierInternals & {
+      classifyAndApply: RelationClassifierService["classifyAndApply"];
+    };
+    service.anthropic = {
+      messages: {
+        create: async () => ({
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              relations: [{
+                existingMemoryId: "existing",
+                relationType: "EXTEND",
+                confidence: 0.9
+              }]
+            })
+          }]
+        })
+      }
+    };
+
+    await service.classifyAndApply(newMemory);
+    assert.equal(reinforcementCount, 0);
+  });
 });

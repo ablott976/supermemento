@@ -1,5 +1,5 @@
 import neo4j, { Driver, Integer } from "neo4j-driver";
-import { v4 as uuidv4 } from "uuid";
+import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import type { AppConfig } from "../config.js";
 import { DocumentStatus, MemoryType, RelationType } from "../types/enums.js";
 import type {
@@ -59,6 +59,8 @@ type ChunkCreateInput = {
   metadata?: Metadata | string;
   sourceDocId: string;
 };
+
+const DERIVED_MEMORY_ID_NAMESPACE = "6f95d7ad-e62f-4c43-b74a-b722f8394d97";
 
 /** Neo4j data access layer for Documents, Memories, and relations. */
 export class Neo4jClient {
@@ -244,6 +246,150 @@ export class Neo4jClient {
   }
 
   /**
+   * Removes generated artifacts before safely reprocessing an existing document.
+   * Refuses to continue when extracted memories already exist.
+   * @param documentId Document identifier.
+   */
+  public async prepareDocumentForReprocessing(
+    documentId: string,
+    repairId: string
+  ): Promise<{
+    document: Document;
+    deletedChunkCount: number;
+    deletedMemoryCount: number;
+  }> {
+    const session = this.driver.session();
+    try {
+      return await session.executeWrite(async (tx) => {
+        const now = new Date();
+        const check = await tx.run(
+          `
+          MATCH (d:Document {id: $documentId})
+          SET d.repairLockVersion = coalesce(d.repairLockVersion, 0) + 1
+          RETURN d.repairRunId AS existingRepairId,
+                 d.repairLeaseUntil AS repairLeaseUntil
+          `,
+          { documentId }
+        );
+        if (check.records.length === 0) {
+          throw new Error(`Document not found: ${documentId}`);
+        }
+
+        const existingRepairId = check.records[0]?.get("existingRepairId");
+        const leaseValue = check.records[0]?.get("repairLeaseUntil");
+        if (existingRepairId && String(existingRepairId) !== repairId) {
+          throw new Error(
+            `Refusing to reprocess document ${documentId}: another repair run owns it`
+          );
+        }
+        if (
+          existingRepairId &&
+          leaseValue &&
+          new Date(String(leaseValue)).getTime() > now.getTime()
+        ) {
+          throw new Error(`Refusing to reprocess document ${documentId}: repair lease is active`);
+        }
+
+        const memoryCountResult = await tx.run(
+          `
+          MATCH (d:Document {id: $documentId})
+          OPTIONAL MATCH (m:Memory)-[:EXTRACTED_FROM]->(d)
+          RETURN count(m) AS memoryCount
+          `,
+          { documentId }
+        );
+        const memoryCount = Number(memoryCountResult.records[0]?.get("memoryCount") ?? 0);
+        if (!existingRepairId && memoryCount > 0) {
+          throw new Error(
+            `Refusing to start repair for document ${documentId}: ${memoryCount} extracted memories already exist`
+          );
+        }
+
+        const memoryCleanup = await tx.run(
+          `
+          MATCH (m:Memory)-[:EXTRACTED_FROM]->(:Document {id: $documentId})
+          DETACH DELETE m
+          `,
+          { documentId }
+        );
+        const chunkCleanup = await tx.run(
+          `
+          MATCH (c:Chunk)-[:EXTRACTED_FROM]->(:Document {id: $documentId})
+          DETACH DELETE c
+          `,
+          { documentId }
+        );
+
+        const leaseUntil = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+        const claim = await tx.run(
+          `
+          MATCH (d:Document {id: $documentId})
+          SET d.repairRunId = $repairId,
+              d.repairLeaseUntil = datetime($leaseUntil),
+              d.status = $extractingStatus,
+              d.updatedAt = datetime($updatedAt)
+          RETURN d
+          `,
+          {
+            documentId,
+            repairId,
+            leaseUntil,
+            extractingStatus: DocumentStatus.Extracting,
+            updatedAt: new Date().toISOString()
+          }
+        );
+
+        return {
+          document: this.mapDocument(claim.records[0]?.get("d")),
+          deletedChunkCount: chunkCleanup.summary.counters.updates().nodesDeleted,
+          deletedMemoryCount: memoryCleanup.summary.counters.updates().nodesDeleted
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /** Clears a successful document repair claim. */
+  public async completeDocumentReprocessing(documentId: string, repairId: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (d:Document {id: $documentId, repairRunId: $repairId})
+        REMOVE d.repairRunId, d.repairLeaseUntil, d.repairLockVersion
+        SET d.updatedAt = datetime($updatedAt)
+        RETURN d
+        `,
+        { documentId, repairId, updatedAt: new Date().toISOString() }
+      );
+      if (result.records.length === 0) {
+        throw new Error(`Repair claim not found for document ${documentId}`);
+      }
+    } finally {
+      await session.close();
+    }
+  }
+
+  /** Releases a failed repair lease while retaining its retry ownership. */
+  public async releaseDocumentReprocessing(documentId: string, repairId: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `
+        MATCH (d:Document {id: $documentId, repairRunId: $repairId})
+        SET d.repairLeaseUntil = datetime(),
+            d.updatedAt = datetime()
+        RETURN d
+        `,
+        { documentId, repairId }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Deletes a document and returns true if it existed.
    * @param documentId Document identifier.
    */
@@ -384,34 +530,68 @@ export class Neo4jClient {
     embedding: number[];
   }): Promise<Memory> {
     const session = this.driver.session();
-    const id = uuidv4();
+    const sourceMemoryIds = [...new Set(params.sourceMemoryIds)].sort();
+    const id = uuidv5(
+      JSON.stringify({
+        content: params.content,
+        containerTag: params.containerTag,
+        sourceDocId: params.sourceDocId,
+        sourceMemoryIds
+      }),
+      DERIVED_MEMORY_ID_NAMESPACE
+    );
     const now = new Date().toISOString();
 
     try {
-      const result = await session.executeWrite((tx) =>
-        tx.run(
+      const result = await session.executeWrite(async (tx) => {
+        const existingResult = await tx.run(
           `
-          MATCH (d:Document {id: $sourceDocId})
-          CREATE (derived:Memory {
-            id: $id,
-            content: $content,
+          MATCH (derived:Memory {
             memoryType: $memoryType,
             containerTag: $containerTag,
-            isLatest: true,
-            confidence: 0.6,
-            originalConfidence: NULL,
-            embedding: $embedding,
-            validFrom: NULL,
-            validTo: NULL,
-            forgottenAt: NULL,
-            createdAt: datetime($createdAt),
-            sourceDocId: $sourceDocId
-          })
-          CREATE (derived)-[:EXTRACTED_FROM]->(d)
-          WITH derived
-          UNWIND $sourceMemoryIds AS sourceId
-          MATCH (source:Memory {id: sourceId})
-          CREATE (derived)-[:DERIVES]->(source)
+            sourceDocId: $sourceDocId,
+            content: $content
+          })-[:DERIVES]->(source:Memory)
+          WITH derived, collect(DISTINCT source.id) AS existingSourceIds
+          WHERE size(existingSourceIds) = size($sourceMemoryIds)
+            AND all(sourceId IN $sourceMemoryIds WHERE sourceId IN existingSourceIds)
+          RETURN derived
+          LIMIT 1
+          `,
+          {
+            content: params.content,
+            memoryType: MemoryType.Derived,
+            containerTag: params.containerTag,
+            sourceDocId: params.sourceDocId,
+            sourceMemoryIds
+          }
+        );
+        if (existingResult.records.length > 0) {
+          return existingResult;
+        }
+
+        return tx.run(
+          `
+          MATCH (d:Document {id: $sourceDocId})
+          MATCH (source:Memory)
+          WHERE source.id IN $sourceMemoryIds
+          WITH d, collect(DISTINCT source) AS sources
+          WHERE size(sources) = size($sourceMemoryIds)
+          MERGE (derived:Memory {id: $id})
+          ON CREATE SET derived.content = $content,
+                        derived.memoryType = $memoryType,
+                        derived.containerTag = $containerTag,
+                        derived.isLatest = true,
+                        derived.confidence = 0.6,
+                        derived.originalConfidence = NULL,
+                        derived.embedding = $embedding,
+                        derived.validFrom = NULL,
+                        derived.validTo = NULL,
+                        derived.forgottenAt = NULL,
+                        derived.createdAt = datetime($createdAt),
+                        derived.sourceDocId = $sourceDocId
+          MERGE (derived)-[:EXTRACTED_FROM]->(d)
+          FOREACH (source IN sources | MERGE (derived)-[:DERIVES]->(source))
           RETURN derived
           LIMIT 1
           `,
@@ -421,12 +601,12 @@ export class Neo4jClient {
             memoryType: MemoryType.Derived,
             containerTag: params.containerTag,
             sourceDocId: params.sourceDocId,
-            sourceMemoryIds: params.sourceMemoryIds,
+            sourceMemoryIds,
             createdAt: now,
             embedding: params.embedding
           }
-        )
-      );
+        );
+      });
 
       if (result.records.length === 0) {
         throw new Error("Failed to create derived memory");
@@ -1134,7 +1314,7 @@ export class Neo4jClient {
     fromMemoryId: string,
     toMemoryId: string,
     relationType: RelationType
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (
       relationType !== RelationType.Updates &&
       relationType !== RelationType.Extends &&
@@ -1145,7 +1325,7 @@ export class Neo4jClient {
 
     const session = this.driver.session();
     try {
-      await session.run(
+      const result = await session.run(
         `
         MATCH (from:Memory {id: $fromMemoryId})
         MATCH (to:Memory {id: $toMemoryId})
@@ -1154,6 +1334,7 @@ export class Neo4jClient {
         `,
         { fromMemoryId, toMemoryId }
       );
+      return result.summary.counters.updates().relationshipsCreated > 0;
     } finally {
       await session.close();
     }
