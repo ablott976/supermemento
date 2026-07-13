@@ -21,7 +21,10 @@ Para DERIVE: la combinación de hechos permite inferir algo nuevo. Ejemplo: 'es 
 Responde con: {relations: [{existingMemoryId, relationType, confidence, derivedFact?}]}`;
 
 const optionalDerivedFactSchema = z.preprocess(
-  (value) => (value === null ? undefined : value),
+  (value) =>
+    value === null || (typeof value === "string" && value.trim() === "")
+      ? undefined
+      : value,
   z.string().trim().min(1).optional()
 );
 
