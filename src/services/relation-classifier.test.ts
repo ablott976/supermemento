@@ -13,7 +13,7 @@ type TextResponse = {
 type RelationClassifierInternals = {
   anthropic: {
     messages: {
-      create: () => Promise<TextResponse>;
+      create: (input?: { max_tokens?: number }) => Promise<TextResponse>;
     };
   };
   extractJson: (raw: string) => unknown;
@@ -108,6 +108,24 @@ describe("RelationClassifierService response normalization", () => {
       ),
       { relations: [{ derivedFact: "Conserva,}" }] }
     );
+  });
+
+  it("reserves enough output tokens for all candidate relations", async () => {
+    const service = makeService();
+    let maxTokens: number | undefined;
+    service.anthropic = {
+      messages: {
+        create: async (input) => {
+          maxTokens = input?.max_tokens;
+          return { content: [{ type: "text", text: '{"relations":[]}' }] };
+        }
+      }
+    };
+
+    await service.classify(makeMemory("new", "New fact"), [
+      makeMemory("existing", "Existing fact")
+    ]);
+    assert.equal(maxTokens, 4000);
   });
 
   it("accepts and removes derivedFact null for a non-DERIVE relation", async () => {
