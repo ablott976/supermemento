@@ -20,12 +20,27 @@ Para DERIVE: la combinación de hechos permite inferir algo nuevo. Ejemplo: 'es 
 
 Responde con: {relations: [{existingMemoryId, relationType, confidence, derivedFact?}]}`;
 
-const relationSchema = z.object({
-  existingMemoryId: z.string().min(1),
-  relationType: z.enum(["UPDATE", "EXTEND", "DERIVE", "NONE"]),
-  confidence: z.number().min(0).max(1),
-  derivedFact: z.string().optional()
-});
+const optionalDerivedFactSchema = z.preprocess(
+  (value) => (value === null ? undefined : value),
+  z.string().trim().min(1).optional()
+);
+
+const relationSchema = z
+  .object({
+    existingMemoryId: z.string().min(1),
+    relationType: z.enum(["UPDATE", "EXTEND", "DERIVE", "NONE"]),
+    confidence: z.number().min(0).max(1),
+    derivedFact: optionalDerivedFactSchema
+  })
+  .superRefine((relation, context) => {
+    if (relation.relationType === "DERIVE" && !relation.derivedFact) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["derivedFact"],
+        message: "DERIVE relations require a non-empty derivedFact"
+      });
+    }
+  });
 
 const responseSchema = z.object({
   relations: z.array(relationSchema)
@@ -46,12 +61,7 @@ Para DERIVE: la combinación de hechos permite inferir algo nuevo. Ejemplo: 'es 
 Responde con: {classifications: [{newMemoryId, relations: [{existingMemoryId, relationType, confidence, derivedFact?}]}]}
 Incluye una entrada por cada newMemoryId recibido, incluso si todas sus relaciones son NONE.`;
 
-const batchRelationSchema = z.object({
-  existingMemoryId: z.string().min(1),
-  relationType: z.enum(["UPDATE", "EXTEND", "DERIVE", "NONE"]),
-  confidence: z.number().min(0).max(1),
-  derivedFact: z.string().optional()
-});
+const batchRelationSchema = relationSchema;
 
 const batchResponseSchema = z.object({
   classifications: z.array(
@@ -356,9 +366,115 @@ export class RelationClassifierService {
   }
 
   private extractJson(raw: string): unknown {
-    const fenced = raw.match(/```json\s*([\s\S]*?)\s*```/i);
-    const payload = fenced?.[1] ?? raw;
-    return JSON.parse(payload.trim());
+    const payload = raw.trim();
+
+    try {
+      return this.parseJsonPayload(payload);
+    } catch (directError) {
+      const objectPayload = this.extractFirstJsonObject(payload);
+      if (!objectPayload) {
+        throw directError;
+      }
+      return this.parseJsonPayload(objectPayload);
+    }
+  }
+
+  private parseJsonPayload(payload: string): unknown {
+    try {
+      return JSON.parse(payload);
+    } catch (error) {
+      const withoutTrailingCommas = this.removeTrailingCommas(payload);
+      if (withoutTrailingCommas === payload) {
+        throw error;
+      }
+      return JSON.parse(withoutTrailingCommas);
+    }
+  }
+
+  private extractFirstJsonObject(raw: string): string | null {
+    let objectStart = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < raw.length; index += 1) {
+      const character = raw.charAt(index);
+
+      if (objectStart < 0) {
+        if (character === "{") {
+          objectStart = index;
+          depth = 1;
+        }
+        continue;
+      }
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (character === "\\") {
+          escaped = true;
+        } else if (character === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (character === '"') {
+        inString = true;
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return raw.slice(objectStart, index + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private removeTrailingCommas(raw: string): string {
+    let normalized = "";
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < raw.length; index += 1) {
+      const character = raw.charAt(index);
+
+      if (inString) {
+        normalized += character;
+        if (escaped) {
+          escaped = false;
+        } else if (character === "\\") {
+          escaped = true;
+        } else if (character === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (character === '"') {
+        inString = true;
+        normalized += character;
+        continue;
+      }
+
+      if (character === ",") {
+        let nextIndex = index + 1;
+        while (nextIndex < raw.length && /\s/.test(raw.charAt(nextIndex))) {
+          nextIndex += 1;
+        }
+        const nextCharacter = raw.charAt(nextIndex);
+        if (nextCharacter === "}" || nextCharacter === "]") {
+          continue;
+        }
+      }
+
+      normalized += character;
+    }
+
+    return normalized;
   }
 
   private resolveExistingMemoryId(value: string, candidates: Memory[]): string {
