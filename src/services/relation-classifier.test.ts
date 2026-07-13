@@ -288,16 +288,25 @@ describe("RelationClassifierService response normalization", () => {
     );
   });
 
-  it("does not reinforce a preference when an EXTEND relation already existed", async () => {
+  it("delegates preference reinforcement to the atomic relation write", async () => {
     const existing = {
       ...makeMemory("existing", "Existing preference"),
       memoryType: MemoryType.Preference
     };
     const newMemory = makeMemory("new", "Additional preference detail");
     let reinforcementCount = 0;
+    let relationOptions: { reinforceTargetPreference?: boolean } | undefined;
     const neo4jClient = {
       semanticSearchMemories: async () => [{ memory: existing, score: 0.9 }],
-      createMemoryRelation: async () => false
+      createMemoryRelation: async (
+        _from: string,
+        _to: string,
+        _type: string,
+        options?: { reinforceTargetPreference?: boolean }
+      ) => {
+        relationOptions = options;
+        return false;
+      }
     };
     const forgettingService = {
       reinforcePreference: async () => {
@@ -335,5 +344,30 @@ describe("RelationClassifierService response normalization", () => {
 
     await service.classifyAndApply(newMemory);
     assert.equal(reinforcementCount, 0);
+    assert.equal(relationOptions?.reinforceTargetPreference, true);
+  });
+
+  it("forwards the historical cutoff to candidate search", async () => {
+    const newMemory = makeMemory("new", "Historical fact");
+    let searchOptions: { asOf?: string } | undefined;
+    const neo4jClient = {
+      semanticSearchMemories: async (options: { asOf?: string }) => {
+        searchOptions = options;
+        return [];
+      }
+    };
+    const service = new RelationClassifierService(
+      {
+        ANTHROPIC_API_KEY: "test-key",
+        ANTHROPIC_MODEL: "test-model"
+      } as AppConfig,
+      neo4jClient as never,
+      {} as never,
+      {} as never
+    );
+
+    const result = await service.classifyAndApply(newMemory, { asOf: newMemory.createdAt });
+    assert.equal(result.candidateCount, 0);
+    assert.equal(searchOptions?.asOf, newMemory.createdAt);
   });
 });
