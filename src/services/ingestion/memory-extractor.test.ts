@@ -2,32 +2,27 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { AppConfig } from "../../config.js";
+import type { TextGenerationClient } from "../llm/text-generation-client.js";
 import { MemoryExtractorService } from "./memory-extractor.js";
 
 type ExtractorInternals = {
-  anthropic: {
-    messages: {
-      create: () => Promise<{ content: Array<{ type: "text"; text: string }> }>;
-    };
-  };
   extractFromChunk: MemoryExtractorService["extractFromChunk"];
 };
 
 function makeService(response: string | Error): ExtractorInternals {
+  const llm: TextGenerationClient = {
+    provider: "anthropic",
+    complete: async () => {
+      if (response instanceof Error) {
+        throw response;
+      }
+      return response;
+    }
+  };
   const service = new MemoryExtractorService({
     ANTHROPIC_API_KEY: "test-key",
     ANTHROPIC_MODEL: "test-model"
-  } as AppConfig) as unknown as ExtractorInternals;
-  service.anthropic = {
-    messages: {
-      create: async () => {
-        if (response instanceof Error) {
-          throw response;
-        }
-        return { content: [{ type: "text", text: response }] };
-      }
-    }
-  };
+  } as AppConfig, llm) as unknown as ExtractorInternals;
   return service;
 }
 
@@ -42,7 +37,7 @@ describe("MemoryExtractorService failure handling", () => {
     const service = makeService(error);
     await assert.rejects(
       service.extractFromChunk("Some content"),
-      /Anthropic extraction request failed \(HTTP 429\)/
+      /LLM extraction request failed \(anthropic, HTTP 429\)/
     );
   });
 

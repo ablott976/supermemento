@@ -4,18 +4,11 @@ import { describe, it } from "node:test";
 import type { AppConfig } from "../config.js";
 import { MemoryType } from "../types/index.js";
 import type { Memory } from "../types/index.js";
+import type { TextGenerationClient } from "./llm/text-generation-client.js";
 import { RelationClassifierService } from "./relation-classifier.js";
 
-type TextResponse = {
-  content: Array<{ type: "text"; text: string }>;
-};
-
 type RelationClassifierInternals = {
-  anthropic: {
-    messages: {
-      create: (input?: { max_tokens?: number }) => Promise<TextResponse>;
-    };
-  };
+  llm: TextGenerationClient;
   extractJson: (raw: string) => unknown;
   classify: (
     newMemory: Memory,
@@ -61,6 +54,10 @@ function makeMemory(id: string, content: string): Memory {
 }
 
 function makeService(responseText?: string): RelationClassifierInternals {
+  const llm: TextGenerationClient = {
+    provider: "anthropic",
+    complete: async () => responseText ?? '{"relations":[]}'
+  };
   const service = new RelationClassifierService(
     {
       ANTHROPIC_API_KEY: "test-key",
@@ -68,19 +65,9 @@ function makeService(responseText?: string): RelationClassifierInternals {
     } as AppConfig,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    llm
   ) as unknown as RelationClassifierInternals;
-
-  if (responseText !== undefined) {
-    service.anthropic = {
-      messages: {
-        create: async () => ({
-          content: [{ type: "text", text: responseText }]
-        })
-      }
-    };
-  }
-
   return service;
 }
 
@@ -113,12 +100,11 @@ describe("RelationClassifierService response normalization", () => {
   it("reserves enough output tokens for all candidate relations", async () => {
     const service = makeService();
     let maxTokens: number | undefined;
-    service.anthropic = {
-      messages: {
-        create: async (input) => {
-          maxTokens = input?.max_tokens;
-          return { content: [{ type: "text", text: '{"relations":[]}' }] };
-        }
+    service.llm = {
+      provider: "anthropic",
+      complete: async (input) => {
+        maxTokens = input.maxTokens;
+        return '{"relations":[]}';
       }
     };
 
@@ -321,25 +307,19 @@ describe("RelationClassifierService response normalization", () => {
       } as AppConfig,
       neo4jClient as never,
       {} as never,
-      forgettingService as never
-    ) as unknown as RelationClassifierInternals & {
-      classifyAndApply: RelationClassifierService["classifyAndApply"];
-    };
-    service.anthropic = {
-      messages: {
-        create: async () => ({
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              relations: [{
-                existingMemoryId: "existing",
-                relationType: "EXTEND",
-                confidence: 0.9
-              }]
-            })
+      forgettingService as never,
+      {
+        provider: "anthropic",
+        complete: async () => JSON.stringify({
+          relations: [{
+            existingMemoryId: "existing",
+            relationType: "EXTEND",
+            confidence: 0.9
           }]
         })
       }
+    ) as unknown as RelationClassifierInternals & {
+      classifyAndApply: RelationClassifierService["classifyAndApply"];
     };
 
     await service.classifyAndApply(newMemory);

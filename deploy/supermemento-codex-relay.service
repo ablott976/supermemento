@@ -1,0 +1,29 @@
+[Unit]
+Description=Supermemento OpenAI Codex OAuth relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HERMES_HOME=%h/.hermes/profiles/zkteco-2
+Environment=PYTHONPATH=%h/.hermes/hermes-agent
+EnvironmentFile=%h/.config/supermemento/codex-relay.env
+ExecStart=%h/.hermes/hermes-agent/venv/bin/python %h/.local/lib/supermemento/codex_oauth_relay.py --host 127.0.0.1 --port 8646
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target

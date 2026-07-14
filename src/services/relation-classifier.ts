@@ -1,10 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { Neo4jClient } from "../db/neo4j-client.js";
 import { MemoryType, RelationType, type Memory } from "../types/index.js";
 import { EmbeddingService } from "./embedding.js";
 import { ForgettingService } from "./forgetting.js";
+import {
+  createTextGenerationClient,
+  type TextGenerationClient
+} from "./llm/text-generation-client.js";
 
 const CLASSIFICATION_SYSTEM_PROMPT = `Eres un clasificador de relaciones entre memorias. Dado un NUEVO HECHO y una lista de HECHOS EXISTENTES, determina para cada par qué relación aplica. Responde SOLO en JSON.
 
@@ -77,8 +80,7 @@ const batchResponseSchema = z.object({
 
 /** Service that classifies and applies intelligent relations for new memories. */
 export class RelationClassifierService {
-  private readonly anthropic: Anthropic;
-  private readonly model: string;
+  private readonly llm: TextGenerationClient;
   private readonly neo4jClient: Neo4jClient;
   private readonly embeddingService: EmbeddingService;
   private readonly forgettingService: ForgettingService;
@@ -94,10 +96,10 @@ export class RelationClassifierService {
     config: AppConfig,
     neo4jClient: Neo4jClient,
     embeddingService: EmbeddingService,
-    forgettingService: ForgettingService
+    forgettingService: ForgettingService,
+    llm?: TextGenerationClient
   ) {
-    this.anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
-    this.model = config.ANTHROPIC_MODEL;
+    this.llm = llm ?? createTextGenerationClient(config);
     this.neo4jClient = neo4jClient;
     this.embeddingService = embeddingService;
     this.forgettingService = forgettingService;
@@ -279,35 +281,25 @@ export class RelationClassifierService {
       ])
     );
 
-    const response = await this.anthropic.messages.create({
-      model: this.model,
-      max_tokens: 4000,
+    const combinedText = await this.llm.complete({
+      operation: "batch-relation-classification",
       system: BATCH_CLASSIFICATION_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: JSON.stringify({
-            newFacts: entries.map((entry) => ({
-              id: entry.newMemory.id,
-              content: entry.newMemory.content,
-              memoryType: entry.newMemory.memoryType,
-              containerTag: entry.newMemory.containerTag,
-              existingCandidates: entry.candidates.map((c) => ({
-                id: c.memory.id,
-                content: c.memory.content,
-                memoryType: c.memory.memoryType,
-                isLatest: c.memory.isLatest
-              }))
-            }))
-          })
-        }
-      ]
+      user: JSON.stringify({
+        newFacts: entries.map((entry) => ({
+          id: entry.newMemory.id,
+          content: entry.newMemory.content,
+          memoryType: entry.newMemory.memoryType,
+          containerTag: entry.newMemory.containerTag,
+          existingCandidates: entry.candidates.map((c) => ({
+            id: c.memory.id,
+            content: c.memory.content,
+            memoryType: c.memory.memoryType,
+            isLatest: c.memory.isLatest
+          }))
+        }))
+      }),
+      maxTokens: 4000
     });
-
-    const combinedText = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
 
     const parsed = batchResponseSchema.parse(this.extractJson(combinedText));
     return {
@@ -328,35 +320,25 @@ export class RelationClassifierService {
     newMemory: Memory,
     candidates: Memory[]
   ): Promise<z.infer<typeof responseSchema>> {
-    const response = await this.anthropic.messages.create({
-      model: this.model,
-      max_tokens: 4000,
+    const combinedText = await this.llm.complete({
+      operation: "relation-classification",
       system: CLASSIFICATION_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: JSON.stringify({
-            newFact: {
-              id: newMemory.id,
-              content: newMemory.content,
-              memoryType: newMemory.memoryType,
-              containerTag: newMemory.containerTag
-            },
-            existingFacts: candidates.map((candidate) => ({
-              id: candidate.id,
-              content: candidate.content,
-              memoryType: candidate.memoryType,
-              isLatest: candidate.isLatest
-            }))
-          })
-        }
-      ]
+      user: JSON.stringify({
+        newFact: {
+          id: newMemory.id,
+          content: newMemory.content,
+          memoryType: newMemory.memoryType,
+          containerTag: newMemory.containerTag
+        },
+        existingFacts: candidates.map((candidate) => ({
+          id: candidate.id,
+          content: candidate.content,
+          memoryType: candidate.memoryType,
+          isLatest: candidate.isLatest
+        }))
+      }),
+      maxTokens: 4000
     });
-
-    const combinedText = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
 
     const parsed = responseSchema.parse(this.extractJson(combinedText));
     return {

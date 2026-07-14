@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+COPY private_tcp_forwarder.py /app/private_tcp_forwarder.py
+
+RUN chmod 0555 /app/private_tcp_forwarder.py
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+  CMD python -c "import socket; s=socket.create_connection(('127.0.0.1',18646),3); s.sendall(b'GET /health HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n\r\n'); data=s.recv(512); s.close(); raise SystemExit(0 if b' 200 ' in data else 1)"
+
+USER 1000:1000
+
+ENTRYPOINT ["python", "/app/private_tcp_forwarder.py"]
+CMD ["--listen-host", "0.0.0.0", "--listen-port", "18646", "--target-unix", "/run/codex/codex-relay.sock"]
