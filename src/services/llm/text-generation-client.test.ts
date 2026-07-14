@@ -98,6 +98,89 @@ describe("text generation providers", () => {
     assert.equal("tools" in (captured ?? {}), false);
   });
 
+  it("retries one transient stream failure and discards partial output", async () => {
+    let calls = 0;
+    const logLines: string[] = [];
+    const originalInfo = console.info;
+    console.info = (message?: unknown) => logLines.push(String(message));
+    try {
+      const client = new OpenAiCodexTextGenerationClient(
+        config({
+          LLM_PROVIDER: "openai-codex",
+          OPENAI_CODEX_BASE_URL: "http://100.104.0.187:8646/v1",
+          OPENAI_CODEX_RELAY_KEY: "relay-key"
+        }),
+        {
+          responses: {
+            create: async () => {
+              calls += 1;
+              if (calls === 1) {
+                return {
+                  async *[Symbol.asyncIterator]() {
+                    yield { type: "response.output_text.delta", delta: "discard-me" };
+                    throw new Error("sensitive transport timeout");
+                  }
+                };
+              }
+              return {
+                async *[Symbol.asyncIterator]() {
+                  yield { type: "response.output_text.delta", delta: '{"ok":true}' };
+                  yield { type: "response.completed" };
+                }
+              };
+            }
+          }
+        },
+        0
+      );
+
+      const result = await client.complete({
+        operation: "memory-extraction",
+        system: "s",
+        user: "u",
+        maxTokens: 64
+      });
+
+      assert.equal(result, '{"ok":true}');
+      assert.equal(calls, 2);
+    } finally {
+      console.info = originalInfo;
+    }
+    assert.equal(logLines.length, 1);
+    assert.match(logLines[0], /retry=1 reason=transient/);
+    assert.doesNotMatch(logLines[0], /sensitive|discard-me/);
+  });
+
+  it("stops after one transient retry is exhausted", async () => {
+    let calls = 0;
+    const client = new OpenAiCodexTextGenerationClient(
+      config({
+        LLM_PROVIDER: "openai-codex",
+        OPENAI_CODEX_BASE_URL: "http://100.104.0.187:8646/v1",
+        OPENAI_CODEX_RELAY_KEY: "relay-key"
+      }),
+      {
+        responses: {
+          create: async () => {
+            calls += 1;
+            return {
+              async *[Symbol.asyncIterator]() {
+                throw new Error("connection lost");
+              }
+            };
+          }
+        }
+      },
+      0
+    );
+
+    await assert.rejects(
+      client.complete({ operation: "extract", system: "s", user: "u", maxTokens: 64 }),
+      /openai-codex stream failed/
+    );
+    assert.equal(calls, 2);
+  });
+
   it("fails closed when the Codex stream has no text", async () => {
     const client = new OpenAiCodexTextGenerationClient(
       config({
@@ -177,6 +260,7 @@ describe("text generation providers", () => {
   });
 
   it("does not leak upstream response bodies in errors", async () => {
+    let calls = 0;
     const upstream = Object.assign(new Error("secret provider body"), { status: 401 });
     const client = new OpenAiCodexTextGenerationClient(
       config({
@@ -185,7 +269,7 @@ describe("text generation providers", () => {
         OPENAI_CODEX_RELAY_KEY: "relay-key"
       }),
       {
-        responses: { create: async () => { throw upstream; } }
+        responses: { create: async () => { calls += 1; throw upstream; } }
       }
     );
 
@@ -198,6 +282,37 @@ describe("text generation providers", () => {
         return true;
       }
     );
+    assert.equal(calls, 1);
+  });
+
+  it("does not retry deterministic output-limit failures", async () => {
+    let calls = 0;
+    const client = new OpenAiCodexTextGenerationClient(
+      config({
+        LLM_PROVIDER: "openai-codex",
+        OPENAI_CODEX_BASE_URL: "http://100.104.0.187:8646/v1",
+        OPENAI_CODEX_RELAY_KEY: "relay-key"
+      }),
+      {
+        responses: {
+          create: async () => {
+            calls += 1;
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield { type: "response.output_text.delta", delta: "x".repeat(1025) };
+              }
+            };
+          }
+        }
+      },
+      0
+    );
+
+    await assert.rejects(
+      client.complete({ operation: "extract", system: "s", user: "u", maxTokens: 1 }),
+      /exceeded the configured output limit/
+    );
+    assert.equal(calls, 1);
   });
 
   it("requires relay configuration when Codex is selected", () => {

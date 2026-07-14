@@ -29,6 +29,9 @@ type OpenAiResponsesLike = {
   };
 };
 
+const CODEX_MAX_ATTEMPTS = 2;
+const CODEX_RETRY_DELAY_MS = 1_000;
+
 function statusFromError(error: unknown): number | undefined {
   const status = (error as { status?: unknown } | null)?.status;
   return typeof status === "number" ? status : undefined;
@@ -43,6 +46,29 @@ function providerError(provider: string, phase: string, error: unknown): Error {
     Object.assign(wrapped, { status });
   }
   return wrapped;
+}
+
+function isRetryableCodexError(error: unknown): boolean {
+  const status = statusFromError(error);
+  if (status !== undefined) {
+    return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (
+    error.message === "Codex response exceeded the configured output limit" ||
+    error.message.includes("returned no text")
+  ) {
+    return false;
+  }
+  return (
+    error.message.startsWith("openai-codex request failed") ||
+    error.message.startsWith("openai-codex stream failed") ||
+    error.message === "Codex response was incomplete" ||
+    error.message === "Codex response failed" ||
+    error.message === "Codex response ended without completion"
+  );
 }
 
 function requireNonEmpty(value: string | undefined, name: string): string {
@@ -127,7 +153,11 @@ export class OpenAiCodexTextGenerationClient implements TextGenerationClient {
   private readonly reasoningEffort: AppConfig["LLM_REASONING_EFFORT"];
   private readonly client: OpenAiResponsesLike;
 
-  public constructor(config: AppConfig, client?: OpenAiResponsesLike) {
+  public constructor(
+    config: AppConfig,
+    client?: OpenAiResponsesLike,
+    private readonly retryDelayMs = CODEX_RETRY_DELAY_MS
+  ) {
     const baseURL = requireNonEmpty(config.OPENAI_CODEX_BASE_URL, "OPENAI_CODEX_BASE_URL");
     const apiKey = requireNonEmpty(config.OPENAI_CODEX_RELAY_KEY, "OPENAI_CODEX_RELAY_KEY");
     this.model = config.OPENAI_CODEX_MODEL;
@@ -141,6 +171,27 @@ export class OpenAiCodexTextGenerationClient implements TextGenerationClient {
   }
 
   public async complete(request: TextGenerationRequest): Promise<string> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= CODEX_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.completeOnce(request);
+      } catch (error) {
+        lastError = error;
+        if (attempt === CODEX_MAX_ATTEMPTS || !isRetryableCodexError(error)) {
+          throw error;
+        }
+        console.info(
+          `[llm] provider=${this.provider} model=${this.model} operation=${request.operation} retry=${attempt} reason=transient`
+        );
+        if (this.retryDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  private async completeOnce(request: TextGenerationRequest): Promise<string> {
     const maxCharacters = Math.max(1024, request.maxTokens * 8);
     let stream: AsyncIterable<Record<string, unknown>>;
     try {

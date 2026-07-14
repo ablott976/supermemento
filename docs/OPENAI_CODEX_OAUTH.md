@@ -66,6 +66,7 @@ The relay URL must target loopback, the exact internal sidecar alias, RFC1918 or
 ## Failure and rollback
 
 - Missing/expired OAuth or an unreachable relay produces a provider error. Ingestion remains fail-closed and the historical coordinator pauses.
+- The application retries a complete Codex request once for transient transport/stream failures, HTTP 408/409/425/429/5xx, or an incomplete stream. Any partial output from the first attempt is discarded; deterministic 4xx and output-limit failures are not retried.
 - The relay retries once only after an upstream `401`, forcing OAuth refresh before the retry.
 - Rollback consists of setting `LLM_PROVIDER=anthropic`, restoring the prior image/config and stopping the relay if no other client uses it.
 - Do not automatically switch providers inside a single ingestion attempt; a provider change is an explicit operational action.
