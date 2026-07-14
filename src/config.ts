@@ -8,7 +8,7 @@ function isPrivateRelayUrl(value: string): boolean {
       return false;
     }
     const host = url.hostname.toLowerCase();
-    if (host === "localhost" || host === "::1" || host.startsWith("127.")) {
+    if (host === "localhost" || host === "[::1]") {
       return true;
     }
     if (host === "codex-oauth-bridge") {
@@ -20,6 +20,7 @@ function isPrivateRelayUrl(value: string): boolean {
     }
     const [first, second] = octets as [number, number, number, number];
     return first === 10
+      || first === 127
       || (first === 172 && second >= 16 && second <= 31)
       || (first === 192 && second === 168)
       || (first === 100 && second >= 64 && second <= 127);
@@ -119,7 +120,7 @@ export function loadConfig(): AppConfig {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
     OPENAI_CODEX_MODEL: process.env.OPENAI_CODEX_MODEL,
-    OPENAI_CODEX_BASE_URL: process.env.OPENAI_CODEX_BASE_URL,
+    OPENAI_CODEX_BASE_URL: process.env.OPENAI_CODEX_BASE_URL?.trim() || undefined,
     OPENAI_CODEX_RELAY_KEY: provider === "openai-codex"
       ? resolveCodexRelayKey()
       : process.env.OPENAI_CODEX_RELAY_KEY?.trim() || undefined,
