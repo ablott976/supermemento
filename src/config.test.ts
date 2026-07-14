@@ -79,6 +79,12 @@ describe("LLM environment configuration", () => {
 
     process.env.OPENAI_CODEX_BASE_URL = "http://127.evil.example:8646/v1";
     assert.throws(() => loadConfig(), /internal bridge or a private\/loopback address/);
+
+    process.env.OPENAI_CODEX_BASE_URL = "http://127.0.0.1e2:8646/v1";
+    assert.throws(() => loadConfig(), /internal bridge or a private\/loopback address/);
+
+    process.env.OPENAI_CODEX_BASE_URL = "http://010.0.0.1:8646/v1";
+    assert.throws(() => loadConfig(), /internal bridge or a private\/loopback address/);
   });
 
   it("loads the relay bearer from a Docker secret file", () => {

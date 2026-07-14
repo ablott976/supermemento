@@ -14,8 +14,12 @@ function isPrivateRelayUrl(value: string): boolean {
     if (host === "codex-oauth-bridge") {
       return true;
     }
-    const octets = host.split(".").map(Number);
-    if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    const labels = host.split(".");
+    if (labels.length !== 4 || labels.some((part) => !/^\d{1,3}$/.test(part))) {
+      return false;
+    }
+    const octets = labels.map(Number);
+    if (octets.some((part) => part > 255)) {
       return false;
     }
     const [first, second] = octets as [number, number, number, number];
