@@ -36,6 +36,18 @@ describe("LLM environment configuration", () => {
     assert.equal(config.LLM_REQUEST_TIMEOUT_MS, 180000);
   });
 
+  it("treats a blank optional Codex URL as absent for Anthropic", () => {
+    baseEnvironment();
+    process.env.ANTHROPIC_API_KEY = "anthropic-key";
+    process.env.OPENAI_CODEX_BASE_URL = "   ";
+    delete process.env.LLM_PROVIDER;
+
+    const config = loadConfig();
+
+    assert.equal(config.LLM_PROVIDER, "anthropic");
+    assert.equal(config.OPENAI_CODEX_BASE_URL, undefined);
+  });
+
   it("accepts a private Codex relay without requiring Anthropic", () => {
     baseEnvironment();
     process.env.LLM_PROVIDER = "openai-codex";
@@ -53,6 +65,20 @@ describe("LLM environment configuration", () => {
     process.env.OPENAI_CODEX_RELAY_KEY = "x".repeat(48);
     const config = loadConfig();
     assert.equal(config.OPENAI_CODEX_BASE_URL, "http://codex-oauth-bridge:18646/v1");
+  });
+
+  it("accepts numeric loopback hosts but rejects DNS names beginning with 127", () => {
+    baseEnvironment();
+    process.env.LLM_PROVIDER = "openai-codex";
+    process.env.OPENAI_CODEX_RELAY_KEY = "x".repeat(48);
+    process.env.OPENAI_CODEX_BASE_URL = "http://127.0.0.2:8646/v1";
+    assert.equal(loadConfig().OPENAI_CODEX_BASE_URL, "http://127.0.0.2:8646/v1");
+
+    process.env.OPENAI_CODEX_BASE_URL = "http://[::1]:8646/v1";
+    assert.equal(loadConfig().OPENAI_CODEX_BASE_URL, "http://[::1]:8646/v1");
+
+    process.env.OPENAI_CODEX_BASE_URL = "http://127.evil.example:8646/v1";
+    assert.throws(() => loadConfig(), /internal bridge or a private\/loopback address/);
   });
 
   it("loads the relay bearer from a Docker secret file", () => {
