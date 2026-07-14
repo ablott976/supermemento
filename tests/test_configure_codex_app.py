@@ -61,6 +61,7 @@ exit 1
     assert "secret create supermemento_codex_relay_key -" in log
     assert r"--secret-add source=supermemento_codex_relay_key\,target=supermemento_codex_relay_key\,mode=0400" in log
     assert "--env-add OPENAI_CODEX_RELAY_KEY_FILE=/run/secrets/supermemento_codex_relay_key" in log
+    assert "--env-add LLM_REQUEST_TIMEOUT_MS=180000" in log
     assert "--env-rm OPENAI_CODEX_RELAY_KEY" in log
     assert "secret_mounted=yes health=200" in result.stdout
     assert "legacy-direct-value" not in result.stdout

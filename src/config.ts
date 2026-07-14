@@ -57,7 +57,7 @@ const envSchema = z
     OPENAI_CODEX_MODEL: z.string().min(1).default("gpt-5.6-luna"),
     OPENAI_CODEX_BASE_URL: z.string().url().optional(),
     OPENAI_CODEX_RELAY_KEY: z.string().min(32).optional(),
-    LLM_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(120000),
+    LLM_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(180000),
     LLM_REASONING_EFFORT: z.enum(["low", "medium", "high"]).default("low"),
     COHERE_API_KEY: z.string().min(1).optional(),
     COHERE_RERANK_MODEL: z.string().min(1).default("rerank-v3.5")

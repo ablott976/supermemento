@@ -32,6 +32,8 @@ describe("LLM environment configuration", () => {
     delete process.env.LLM_PROVIDER;
     const config = loadConfig();
     assert.equal(config.LLM_PROVIDER, "anthropic");
+    assert.equal(config.ANTHROPIC_MODEL, "claude-haiku-4-5-20251001");
+    assert.equal(config.LLM_REQUEST_TIMEOUT_MS, 180000);
   });
 
   it("accepts a private Codex relay without requiring Anthropic", () => {

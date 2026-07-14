@@ -36,7 +36,7 @@ update=(
   --env-add "OPENAI_CODEX_MODEL=${model}"
   --env-add "OPENAI_CODEX_BASE_URL=${base_url}"
   --env-add "OPENAI_CODEX_RELAY_KEY_FILE=/run/secrets/${secret_target}"
-  --env-add "LLM_REQUEST_TIMEOUT_MS=120000"
+  --env-add "LLM_REQUEST_TIMEOUT_MS=180000"
   --env-add "LLM_REASONING_EFFORT=low"
 )
 
