@@ -122,6 +122,60 @@ describe("text generation providers", () => {
     );
   });
 
+  it("rejects a truncated Codex stream even when it contains text", async () => {
+    const client = new OpenAiCodexTextGenerationClient(
+      config({
+        LLM_PROVIDER: "openai-codex",
+        OPENAI_CODEX_BASE_URL: "http://100.104.0.187:8646/v1",
+        OPENAI_CODEX_RELAY_KEY: "relay-key"
+      }),
+      {
+        responses: {
+          create: async () => ({
+            async *[Symbol.asyncIterator]() {
+              yield { type: "response.output_text.delta", delta: '{"partial":true}' };
+            }
+          })
+        }
+      }
+    );
+    await assert.rejects(
+      client.complete({ operation: "extract", system: "s", user: "u", maxTokens: 64 }),
+      /ended without completion/
+    );
+  });
+
+  it("rejects explicit incomplete and interrupted Codex streams", async () => {
+    const makeClient = (eventFactory: () => AsyncIterable<Record<string, unknown>>) =>
+      new OpenAiCodexTextGenerationClient(
+        config({
+          LLM_PROVIDER: "openai-codex",
+          OPENAI_CODEX_BASE_URL: "http://100.104.0.187:8646/v1",
+          OPENAI_CODEX_RELAY_KEY: "relay-key"
+        }),
+        { responses: { create: async () => eventFactory() } }
+      );
+
+    await assert.rejects(
+      makeClient(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "response.incomplete" };
+        }
+      })).complete({ operation: "extract", system: "s", user: "u", maxTokens: 64 }),
+      /response was incomplete/
+    );
+
+    await assert.rejects(
+      makeClient(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "response.output_text.delta", delta: "partial" };
+          throw new Error("connection lost");
+        }
+      })).complete({ operation: "extract", system: "s", user: "u", maxTokens: 64 }),
+      /openai-codex stream failed/
+    );
+  });
+
   it("does not leak upstream response bodies in errors", async () => {
     const upstream = Object.assign(new Error("secret provider body"), { status: 401 });
     const client = new OpenAiCodexTextGenerationClient(

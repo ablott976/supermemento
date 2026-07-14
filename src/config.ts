@@ -108,6 +108,7 @@ export type AppConfig = z.infer<typeof envSchema>;
  * @returns Strongly typed application configuration.
  */
 export function loadConfig(): AppConfig {
+  const provider = process.env.LLM_PROVIDER;
   const parsed = envSchema.safeParse({
     NEO4J_URI: process.env.NEO4J_URI,
     NEO4J_USER: process.env.NEO4J_USER,
@@ -119,7 +120,9 @@ export function loadConfig(): AppConfig {
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
     OPENAI_CODEX_MODEL: process.env.OPENAI_CODEX_MODEL,
     OPENAI_CODEX_BASE_URL: process.env.OPENAI_CODEX_BASE_URL,
-    OPENAI_CODEX_RELAY_KEY: resolveCodexRelayKey(),
+    OPENAI_CODEX_RELAY_KEY: provider === "openai-codex"
+      ? resolveCodexRelayKey()
+      : process.env.OPENAI_CODEX_RELAY_KEY?.trim() || undefined,
     LLM_REQUEST_TIMEOUT_MS: process.env.LLM_REQUEST_TIMEOUT_MS,
     LLM_REASONING_EFFORT: process.env.LLM_REASONING_EFFORT,
     COHERE_API_KEY: process.env.COHERE_API_KEY,

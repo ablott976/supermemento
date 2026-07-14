@@ -12,6 +12,7 @@ import json
 import logging
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
@@ -19,6 +20,10 @@ LOGGER = logging.getLogger("supermemento.codex_relay")
 MAX_REQUEST_BYTES = 2_000_000
 UPSTREAM_CONNECT_SECONDS = 15
 UPSTREAM_READ_SECONDS = 300
+CODEX_UPSTREAM_HOST = "chatgpt.com"
+CODEX_UPSTREAM_PATH = "/backend-api/codex"
+RELAY_KEY = web.AppKey("relay_key", str)
+ALLOWED_MODEL = web.AppKey("allowed_model", str)
 
 
 def is_authorized(header: str | None, expected_key: str) -> bool:
@@ -102,6 +107,22 @@ def codex_headers(access_token: str) -> dict[str, str]:
     return headers
 
 
+def validate_upstream_base_url(base_url: str) -> str:
+    parsed = urlsplit(base_url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != CODEX_UPSTREAM_HOST
+        or parsed.port not in (None, 443)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path.rstrip("/") != CODEX_UPSTREAM_PATH
+    ):
+        raise ValueError("Codex OAuth upstream is not allowed")
+    return f"https://{CODEX_UPSTREAM_HOST}{CODEX_UPSTREAM_PATH}"
+
+
 def sanitize_upstream_error(status: int, _body: str = "") -> dict[str, Any]:
     return {
         "error": {
@@ -125,8 +146,8 @@ async def health(_request: web.Request) -> web.Response:
 
 
 async def responses(request: web.Request) -> web.StreamResponse:
-    relay_key: str = request.app["relay_key"]
-    allowed_model: str = request.app["allowed_model"]
+    relay_key = request.app[RELAY_KEY]
+    allowed_model = request.app[ALLOWED_MODEL]
     if not is_authorized(request.headers.get("Authorization"), relay_key):
         return web.json_response(
             {"error": {"type": "authentication_error", "message": "Unauthorized"}},
@@ -157,9 +178,10 @@ async def responses(request: web.Request) -> web.StreamResponse:
                     force_refresh=force_refresh,
                 )
                 token = str(credentials.get("api_key") or "").strip()
-                base_url = str(credentials.get("base_url") or "").strip().rstrip("/")
-                if not token or not base_url:
+                raw_base_url = str(credentials.get("base_url") or "").strip()
+                if not token or not raw_base_url:
                     raise RuntimeError("Codex OAuth credentials are unavailable")
+                base_url = validate_upstream_base_url(raw_base_url)
                 upstream_response = await session.post(
                     f"{base_url}/responses",
                     data=body,
@@ -214,8 +236,8 @@ def create_app(relay_key: str, allowed_model: str) -> web.Application:
     if len(relay_key) < 32:
         raise ValueError("SUPERMEMENTO_CODEX_RELAY_KEY must contain at least 32 characters")
     app = web.Application(client_max_size=MAX_REQUEST_BYTES)
-    app["relay_key"] = relay_key
-    app["allowed_model"] = allowed_model
+    app[RELAY_KEY] = relay_key
+    app[ALLOWED_MODEL] = allowed_model
     app.router.add_get("/health", health)
     app.router.add_post("/v1/responses", responses)
     return app

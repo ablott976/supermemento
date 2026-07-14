@@ -28,6 +28,7 @@ describe("LLM environment configuration", () => {
   it("keeps Anthropic as the backwards-compatible default", () => {
     baseEnvironment();
     process.env.ANTHROPIC_API_KEY = "anthropic-key";
+    process.env.OPENAI_CODEX_RELAY_KEY_FILE = "/does/not/exist";
     delete process.env.LLM_PROVIDER;
     const config = loadConfig();
     assert.equal(config.LLM_PROVIDER, "anthropic");

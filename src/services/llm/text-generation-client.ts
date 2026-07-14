@@ -163,6 +163,7 @@ export class OpenAiCodexTextGenerationClient implements TextGenerationClient {
 
     let text = "";
     let completedText = "";
+    let completed = false;
     try {
       for await (const event of stream) {
         const type = event.type;
@@ -170,12 +171,19 @@ export class OpenAiCodexTextGenerationClient implements TextGenerationClient {
           text += event.delta;
         } else if (type === "response.output_text.done" && typeof event.text === "string") {
           completedText = event.text;
+        } else if (type === "response.completed") {
+          completed = true;
+        } else if (type === "response.incomplete") {
+          throw new Error("Codex response was incomplete");
         } else if (type === "response.failed") {
           throw new Error("Codex response failed");
         }
         if (text.length > maxCharacters || completedText.length > maxCharacters) {
           throw new Error("Codex response exceeded the configured output limit");
         }
+      }
+      if (!completed) {
+        throw new Error("Codex response ended without completion");
       }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Codex response")) {
