@@ -45,7 +45,7 @@ LLM_PROVIDER=openai-codex
 OPENAI_CODEX_MODEL=gpt-5.6-luna
 OPENAI_CODEX_BASE_URL=http://codex-oauth-bridge:18646/v1
 OPENAI_CODEX_RELAY_KEY_FILE=/run/secrets/supermemento_codex_relay_key
-LLM_REQUEST_TIMEOUT_MS=120000
+LLM_REQUEST_TIMEOUT_MS=180000
 LLM_REASONING_EFFORT=low
 ```
 
