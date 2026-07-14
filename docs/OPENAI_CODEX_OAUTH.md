@@ -21,6 +21,7 @@ The relay listens on loopback only. A persistent reverse SSH tunnel terminates i
 - TCP bridge: `deploy/private_tcp_forwarder.py`
 - Sidecar image: `deploy/Dockerfile.codex-bridge`
 - Sidecar deploy: `deploy/deploy_codex_bridge.sh`
+- Application secret/provider wiring: `deploy/configure_codex_app.sh`
 - Hermes user services: `deploy/supermemento-codex-relay.service`, `deploy/supermemento-codex-tunnel.service`
 - Installed relay: `~/.local/lib/supermemento/codex_oauth_relay.py`
 - Service units: `~/.config/systemd/user/`
@@ -54,12 +55,12 @@ The relay URL must target loopback, the exact internal sidecar alias, RFC1918 or
 
 1. Authenticate the dedicated Hermes profile with OpenAI Codex OAuth.
 2. Copy the relay and Hermes service units to the runtime paths above.
-3. Generate the relay bearer directly into the Hermes `0600` environment file; never print it or add it to shell history. Create the matching Docker Swarm secret from stdin on the VPS.
+3. Generate the relay bearer directly into the Hermes `0600` environment file; never print it or add it to shell history.
 4. On the Hermes host, enable the relay and reverse-tunnel services.
 5. Build and deploy the immutable bridge sidecar on the `easypanel-n8n` overlay without a published port.
 6. Verify local `/health`, unauthenticated `401`, and an authenticated synthetic JSON request.
 7. Verify the internal route from the Supermemento container.
-8. Configure Supermemento, deploy an immutable image and retain the previous image for rollback.
+8. Deploy the immutable Supermemento image, retain the previous image, then pipe the bearer to `deploy/configure_codex_app.sh`. The script creates/attaches `supermemento_codex_relay_key`, sets `OPENAI_CODEX_RELAY_KEY_FILE`, removes a direct bearer environment variable if present, waits for the new task and verifies health.
 9. Reprocess one failed document and verify its terminal state before resuming bulk ingestion.
 
 ## Failure and rollback
