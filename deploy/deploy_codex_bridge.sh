@@ -41,7 +41,6 @@ else
     --user 1000:1000 \
     --read-only \
     --cap-drop ALL \
-    --security-opt no-new-privileges=true \
     --constraint "node.hostname==${node_hostname}" \
     --limit-memory 128M \
     --restart-condition any \
