@@ -1,13 +1,35 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
+function rawUrlHost(value: string): string | undefined {
+  const schemeEnd = value.indexOf("://");
+  if (schemeEnd < 0) return undefined;
+  const remainder = value.slice(schemeEnd + 3);
+  const authorityEnd = remainder.search(/[/?#]/);
+  const authority = authorityEnd < 0 ? remainder : remainder.slice(0, authorityEnd);
+  const hostAndPort = authority.slice(authority.lastIndexOf("@") + 1);
+  if (!hostAndPort) return undefined;
+  if (hostAndPort.startsWith("[")) {
+    const bracketEnd = hostAndPort.indexOf("]");
+    if (bracketEnd < 0) return undefined;
+    const suffix = hostAndPort.slice(bracketEnd + 1);
+    if (suffix && !suffix.startsWith(":")) return undefined;
+    return hostAndPort.slice(0, bracketEnd + 1);
+  }
+  const portSeparator = hostAndPort.lastIndexOf(":");
+  return (portSeparator < 0 ? hostAndPort : hostAndPort.slice(0, portSeparator)) || undefined;
+}
+
 function isPrivateRelayUrl(value: string): boolean {
   try {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return false;
     }
-    const host = url.hostname.toLowerCase();
+    const host = rawUrlHost(value)?.toLowerCase();
+    if (!host || url.hostname.toLowerCase() !== host) {
+      return false;
+    }
     if (host === "localhost" || host === "[::1]") {
       return true;
     }
@@ -15,7 +37,7 @@ function isPrivateRelayUrl(value: string): boolean {
       return true;
     }
     const labels = host.split(".");
-    if (labels.length !== 4 || labels.some((part) => !/^\d{1,3}$/.test(part))) {
+    if (labels.length !== 4 || labels.some((part) => !/^(0|[1-9]\d{0,2})$/.test(part))) {
       return false;
     }
     const octets = labels.map(Number);
