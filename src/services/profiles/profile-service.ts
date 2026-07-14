@@ -1,9 +1,12 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AppConfig } from "../../config.js";
 import { Neo4jClient } from "../../db/neo4j-client.js";
 import { MemoryType } from "../../types/enums.js";
 import type { Profile } from "../../types/models.js";
+import {
+  createTextGenerationClient,
+  type TextGenerationClient
+} from "../llm/text-generation-client.js";
 
 const PROFILE_PROMPT = `Genera un perfil de usuario conciso basado en los hechos proporcionados. Divide en:
 STATIC (hechos permanentes sobre identidad, rol, preferencias) y
@@ -19,16 +22,14 @@ const profileResponseSchema = z.object({
 /** User profile generation and caching service. */
 export class ProfileService {
   private readonly neo4jClient: Neo4jClient;
-  private readonly anthropic: Anthropic;
-  private readonly model: string;
+  private readonly llm: TextGenerationClient;
 
   /**
    * Creates profile service.
    */
-  public constructor(config: AppConfig, neo4jClient: Neo4jClient) {
+  public constructor(config: AppConfig, neo4jClient: Neo4jClient, llm?: TextGenerationClient) {
     this.neo4jClient = neo4jClient;
-    this.anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
-    this.model = config.ANTHROPIC_MODEL;
+    this.llm = llm ?? createTextGenerationClient(config);
   }
 
   /**
@@ -48,31 +49,21 @@ export class ProfileService {
       derived: memories.filter((memory) => memory.memoryType === MemoryType.Derived).map((m) => m.content)
     };
 
-    const response = await this.anthropic.messages.create({
-      model: this.model,
-      max_tokens: 1200,
+    const raw = await this.llm.complete({
+      operation: "profile-generation",
       system: PROFILE_PROMPT,
-      messages: [
+      user: JSON.stringify(
         {
-          role: "user",
-          content: JSON.stringify(
-            {
-              containerTag,
-              totalMemories: allMemories.length,
-              sampledMemories: memories.length,
-              memoriesByType: grouped
-            },
-            null,
-            2
-          )
-        }
-      ]
+          containerTag,
+          totalMemories: allMemories.length,
+          sampledMemories: memories.length,
+          memoriesByType: grouped
+        },
+        null,
+        2
+      ),
+      maxTokens: 1200
     });
-
-    const raw = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
 
     const parsed = profileResponseSchema.parse(this.extractJson(raw));
     return this.neo4jClient.upsertProfile(

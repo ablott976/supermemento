@@ -1,0 +1,24 @@
+[Unit]
+Description=Supermemento Codex OAuth reverse SSH tunnel
+Requires=supermemento-codex-relay.service
+After=network-online.target supermemento-codex-relay.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/ssh -T -F %h/.ssh/config -o BatchMode=yes vps-hermes /usr/bin/mkdir -p /home/ablott/.local/run/supermemento
+ExecStartPre=/usr/bin/ssh -T -F %h/.ssh/config -o BatchMode=yes vps-hermes /usr/bin/chmod 700 /home/ablott/.local/run/supermemento
+ExecStart=/usr/bin/ssh -N -T -F %h/.ssh/config -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StreamLocalBindUnlink=yes -R /home/ablott/.local/run/supermemento/codex-relay.sock:127.0.0.1:8646 vps-hermes
+ExecStopPost=-/usr/bin/ssh -T -F %h/.ssh/config -o BatchMode=yes vps-hermes /usr/bin/rm -f /home/ablott/.local/run/supermemento/codex-relay.sock
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target

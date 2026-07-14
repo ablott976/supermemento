@@ -1,7 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AppConfig } from "../../config.js";
 import { MemoryType } from "../../types/enums.js";
+import {
+  createTextGenerationClient,
+  type TextGenerationClient
+} from "../llm/text-generation-client.js";
 
 const EXTRACTION_SYSTEM_PROMPT = `You are a fact extractor. Given a text chunk, extract ALL atomic facts. Each fact must be an independent, self-contained statement that makes sense without additional context.
 
@@ -36,18 +39,16 @@ const extractionResponseSchema = z.object({
 
 export type ExtractedMemory = z.infer<typeof extractedMemorySchema>;
 
-/** Extracts atomic memories from chunk text using Anthropic Haiku. */
+/** Extracts atomic memories from chunk text using the configured LLM. */
 export class MemoryExtractorService {
-  private readonly anthropic: Anthropic;
-  private readonly model: string;
+  private readonly llm: TextGenerationClient;
 
   /**
    * Creates the memory extractor service.
    * @param config Parsed application configuration.
    */
-  public constructor(config: AppConfig) {
-    this.anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
-    this.model = config.ANTHROPIC_MODEL;
+  public constructor(config: AppConfig, llm?: TextGenerationClient) {
+    this.llm = llm ?? createTextGenerationClient(config);
   }
 
   /**
@@ -69,28 +70,23 @@ export class MemoryExtractorService {
       2
     );
 
-    let response;
+    let combinedText: string;
     try {
-      response = await this.anthropic.messages.create({
-        model: this.model,
-        max_tokens: 4096,
+      combinedText = await this.llm.complete({
+        operation: "memory-extraction",
         system: EXTRACTION_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userPrompt }]
+        user: userPrompt,
+        maxTokens: 4096
       });
     } catch (apiError) {
       const status = (apiError as { status?: unknown }).status;
-      const suffix = typeof status === "number" ? ` (HTTP ${status})` : "";
-      throw new Error(`Anthropic extraction request failed${suffix}`);
+      const suffix = typeof status === "number" ? `, HTTP ${status}` : "";
+      throw new Error(`LLM extraction request failed (${this.llm.provider}${suffix})`);
     }
-
-    const combinedText = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
 
     const jsonData = this.extractJson(combinedText);
     if (!jsonData) {
-      throw new Error("Anthropic extraction response was not valid JSON");
+      throw new Error("LLM extraction response was not valid JSON");
     }
 
     try {
@@ -116,7 +112,7 @@ export class MemoryExtractorService {
           return validMemories;
         }
       }
-      throw new Error("Anthropic extraction response failed schema validation");
+      throw new Error("LLM extraction response failed schema validation");
     }
   }
 
