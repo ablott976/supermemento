@@ -134,10 +134,20 @@ def _backend() -> FastMCP:
         return {"containerTag": containerTag, "limit": limit}
 
     @backend.tool
+    async def list_crawled_urls(containerTag: str | None = None) -> dict:
+        return {"containerTag": containerTag}
+
+    @backend.tool
     async def delete_memory(memoryId: str) -> dict:
         return {"deleted": memoryId}
 
-    defined = {"semantic_search", "get_user_profile", "list_memories", "list_documents"}
+    defined = {
+        "semantic_search",
+        "get_user_profile",
+        "list_memories",
+        "list_documents",
+        "list_crawled_urls",
+    }
     for name in ALLOWED_TOOLS - defined:
 
         async def placeholder(value: str = "") -> dict:
@@ -175,6 +185,8 @@ def test_tool_surface_is_allowlisted_annotated_and_uses_safe_defaults() -> None:
                 "rewriteQuery": True,
                 "limit": 5,
             }
+            crawled_urls = await client.call_tool("list_crawled_urls", {})
+            assert crawled_urls.data == {"containerTag": "zkteco-pmm"}
             try:
                 await client.call_tool("delete_memory", {"memoryId": "blocked"})
             except Exception as exc:

@@ -103,6 +103,9 @@ def build_transforms() -> list[Transform]:
         "list_documents": ToolTransformConfig(
             arguments={"containerTag": ArgTransformConfig(default="zkteco-pmm")}
         ),
+        "list_crawled_urls": ToolTransformConfig(
+            arguments={"containerTag": ArgTransformConfig(default="zkteco-pmm")}
+        ),
         "get_user_profile": ToolTransformConfig(
             arguments={"regenerate": ArgTransformConfig(default=False, hide=True)}
         ),
