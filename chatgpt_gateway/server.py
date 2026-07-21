@@ -249,10 +249,7 @@ def _consent_page(pending: Any, *, error: str | None = None) -> HTMLResponse:
 def _store_is_writable(store_path: str) -> bool:
     path = Path(store_path)
     directory = path.parent
-    return (
-        directory.is_dir()
-        and os.access(directory, os.W_OK | os.X_OK)
-    )
+    return directory.is_dir() and os.access(directory, os.W_OK | os.X_OK)
 
 
 def create_gateway(
@@ -450,6 +447,7 @@ def main() -> None:
         port=settings.port,
         path="/mcp",
         stateless_http=True,
+        json_response=True,
         show_banner=False,
         host_origin_protection=True,
         allowed_hosts=[
