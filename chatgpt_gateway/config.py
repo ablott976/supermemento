@@ -101,12 +101,17 @@ def client_redirect_uri_allowed(uri: str, allowed_redirects: tuple[str, ...]) ->
     """Match exact redirects or ChatGPT's tightly scoped dynamic callback."""
     if uri == CHATGPT_DYNAMIC_REDIRECT_PATTERN:
         return False
+    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in uri):
+        return False
     if uri in allowed_redirects:
         return True
     if "?" in uri or "#" in uri:
         return False
 
-    parsed = urlparse(uri)
+    try:
+        parsed = urlparse(uri)
+    except ValueError:
+        return False
     callback_prefix = "/connector/oauth/"
     if (
         parsed.scheme != "https"

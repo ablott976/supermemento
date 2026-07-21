@@ -77,6 +77,10 @@ def _pkce_challenge(verifier: str) -> str:
         ("https://chatgpt.com:443/connector/oauth/abc", False),
         ("https://chatgpt.com/connector/oauth/abc%2Fdef", False),
         ("http://chatgpt.com/connector/oauth/abc", False),
+        (" https://chatgpt.com/connector/oauth/abc", False),
+        ("\x00https://chatgpt.com/connector/oauth/abc", False),
+        ("https://chatgpt.com/connector/oauth/abc\n", False),
+        ("https://[chatgpt.com/connector/oauth/abc", False),
     ],
 )
 def test_chatgpt_dynamic_redirect_is_strict(redirect_uri: str, allowed: bool) -> None:
@@ -629,6 +633,16 @@ def test_http_oauth_dcr_redirects_and_authenticated_mcp(tmp_path: Path) -> None:
         )
         assert rejected_registration.status_code == 400
         assert rejected_registration.json()["error"] == "invalid_redirect_uri"
+        for malformed_redirect in (
+            "https://[chatgpt.com/connector/oauth/abc",
+            f" {CHATGPT_DYNAMIC_REDIRECT}",
+        ):
+            malformed_registration = client.post(
+                "/register",
+                json={**registration, "redirect_uris": [malformed_redirect]},
+            )
+            assert malformed_registration.status_code == 400
+            assert malformed_registration.json()["error"] == "invalid_redirect_uri"
 
         access_token, _, _ = _issue_token(
             manager, allowed_registration.json()["client_id"]
