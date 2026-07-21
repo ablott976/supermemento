@@ -1,30 +1,35 @@
-"""OAuth-protected, least-privilege MCP proxy for ChatGPT."""
+"""Owner-authorized, least-privilege MCP proxy for ChatGPT."""
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import json
 import logging
+import os
+from pathlib import Path
 from typing import Any, AsyncIterator, Sequence
 
-from cryptography.fernet import Fernet
 from fastmcp.server import create_proxy
-from fastmcp.server.auth.providers.github import GitHubProvider
-from fastmcp.server.middleware.authorization import AuthContext, AuthMiddleware
+from fastmcp.server.auth import RemoteAuthProvider
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
 from fastmcp.server.transforms import ToolTransform, Transform, Visibility
 from fastmcp.tools import Tool
 from fastmcp.tools.tool_transform import ArgTransformConfig, ToolTransformConfig
 import httpx
-from key_value.aio.stores.redis import RedisStore
-from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from mcp.types import ToolAnnotations
-from redis.asyncio import Redis
+from pydantic import AnyHttpUrl
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from .config import GatewaySettings
+from .owner_oauth import (
+    PUBLIC_SCOPES,
+    GatewayOAuthManager,
+    OAuthFlowError,
+    OAuthStoreError,
+)
 
 
 logger = logging.getLogger("supermemento.chatgpt_gateway")
@@ -118,51 +123,133 @@ def build_transforms() -> list[Transform]:
     ]
 
 
-def is_allowed_github_user(
-    claims: dict[str, Any] | None, allowed_users: frozenset[str]
-) -> bool:
-    """Fail closed unless the verified token has an explicitly allowed GitHub login."""
-    login = claims.get("login") if claims else None
-    return isinstance(login, str) and login.lower() in allowed_users
-
-
-def github_user_check(settings: GatewaySettings):
-    async def check(context: AuthContext) -> bool:
-        claims = context.token.claims if context.token is not None else None
-        return is_allowed_github_user(claims, settings.allowed_github_users)
-
-    return check
+def build_oauth_manager(settings: GatewaySettings) -> GatewayOAuthManager:
+    """Build the self-hosted owner-consent OAuth provider."""
+    return GatewayOAuthManager(
+        issuer_url=settings.public_base_url,
+        resource_url=f"{settings.public_base_url}/mcp",
+        legacy_token_sha256=None,
+        consent_token_sha256=settings.owner_token_sha256,
+        scopes=PUBLIC_SCOPES,
+        oauth_store_path=settings.oauth_store_path,
+    )
 
 
 def build_auth_provider(
-    settings: GatewaySettings,
-    *,
-    client_storage: Any,
-    http_client: httpx.AsyncClient | None = None,
-) -> GitHubProvider:
-    """Build an MCP-compliant OAuth proxy backed by GitHub identity."""
-    return GitHubProvider(
-        client_id=settings.github_client_id,
-        client_secret=settings.github_client_secret,
+    settings: GatewaySettings, oauth_manager: GatewayOAuthManager
+) -> RemoteAuthProvider:
+    """Advertise the local OAuth issuer and validate its bearer tokens."""
+    return RemoteAuthProvider(
+        token_verifier=oauth_manager,  # type: ignore[arg-type]
+        authorization_servers=[AnyHttpUrl(f"{settings.public_base_url}/")],
         base_url=settings.public_base_url,
         resource_base_url=settings.public_base_url,
-        issuer_url=settings.public_base_url,
-        redirect_path="/auth/callback",
-        required_scopes=[],
-        timeout_seconds=10,
-        cache_ttl_seconds=60,
-        max_cache_size=64,
-        allowed_client_redirect_uris=list(settings.allowed_client_redirect_uris),
-        client_storage=client_storage,
-        jwt_signing_key=settings.jwt_signing_key,
-        require_authorization_consent=True,
-        forward_resource=False,
-        fallback_refresh_token_expiry_seconds=2_592_000,
-        fastmcp_access_token_expiry_seconds=3_600,
-        token_expiry_threshold_seconds=60,
-        http_client=http_client,
-        enable_cimd=True,
+        scopes_supported=list(PUBLIC_SCOPES),
+        resource_name="Supermemento",
     )
+
+
+def _no_store_headers(
+    *, cors: bool = False, methods: str | None = None
+) -> dict[str, str]:
+    headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+    if cors:
+        headers.update(
+            {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": (
+                    "Authorization, Content-Type, MCP-Protocol-Version, "
+                    "mcp-protocol-version"
+                ),
+                "Access-Control-Max-Age": "600",
+            }
+        )
+        if methods:
+            headers["Access-Control-Allow-Methods"] = methods
+    return headers
+
+
+def _cors_preflight(methods: str) -> Response:
+    return Response(
+        status_code=204, headers=_no_store_headers(cors=True, methods=methods)
+    )
+
+
+def _oauth_error_response(
+    exc: OAuthFlowError, *, cors: bool = False, methods: str | None = None
+) -> JSONResponse:
+    headers = _no_store_headers(cors=cors, methods=methods)
+    if exc.status_code == 401 and exc.error == "invalid_client":
+        headers["WWW-Authenticate"] = 'Basic realm="supermemento"'
+    return JSONResponse(
+        {"error": exc.error, "error_description": exc.description},
+        status_code=exc.status_code,
+        headers=headers,
+    )
+
+
+def _json_no_store(
+    data: dict,
+    *,
+    status_code: int = 200,
+    cors: bool = False,
+    methods: str | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        data,
+        status_code=status_code,
+        headers=_no_store_headers(cors=cors, methods=methods),
+    )
+
+
+def _consent_page(pending: Any, *, error: str | None = None) -> HTMLResponse:
+    escaped_client = GatewayOAuthManager.quote_html(pending.client_id)
+    escaped_error = GatewayOAuthManager.quote_html(error)
+    error_html = f'<p class="error">{escaped_error}</p>' if error else ""
+    html = f"""<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Autorizar Supermemento</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; margin: 2rem; line-height: 1.45; }}
+    main {{ max-width: 34rem; margin: 0 auto; }}
+    label {{ display: block; margin: 1rem 0 0.25rem; font-weight: 600; }}
+    input {{ width: 100%; box-sizing: border-box; padding: 0.7rem; font-size: 1rem; }}
+    button {{ margin-top: 1rem; padding: 0.7rem 1rem; font-size: 1rem; }}
+    code {{ background: #f4f4f4; padding: 0.1rem 0.25rem; }}
+    .notice {{ background: #f7f7ff; border: 1px solid #d8d8ff; padding: 1rem; border-radius: 0.5rem; }}
+    .error {{ color: #9f1239; font-weight: 600; }}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Autorizar Supermemento</h1>
+  <div class="notice">
+    <p>Conecta ChatGPT con el conocimiento de Supermemento.</p>
+    <p><strong>Cliente:</strong> <code>{escaped_client}</code></p>
+  </div>
+  {error_html}
+  <form method="post" action="authorize" autocomplete="off">
+    <input type="hidden" name="request_id" value="{GatewayOAuthManager.quote_html(pending.request_id)}">
+    <input type="hidden" name="csrf_token" value="{GatewayOAuthManager.quote_html(pending.csrf_token)}">
+    <label for="setup_token">Token de propietario</label>
+    <input id="setup_token" name="setup_token" type="password" required autofocus>
+    <button type="submit">Autorizar</button>
+  </form>
+</main>
+</body>
+</html>"""
+    return HTMLResponse(
+        html, headers={"Cache-Control": "no-store", "Pragma": "no-cache"}
+    )
+
+
+def _store_is_writable(store_path: str) -> bool:
+    path = Path(store_path)
+    target = path if path.exists() else path.parent
+    return target.exists() and os.access(target, os.W_OK)
 
 
 def create_gateway(
@@ -170,7 +257,7 @@ def create_gateway(
     *,
     target: Any,
     auth_provider: Any,
-    redis_client: Redis | None = None,
+    oauth_manager: GatewayOAuthManager,
     http_client: httpx.AsyncClient | None = None,
 ):
     """Create the authenticated MCP proxy. Dependencies are injectable for tests."""
@@ -182,8 +269,6 @@ def create_gateway(
         finally:
             if http_client is not None:
                 await http_client.aclose()
-            if redis_client is not None:
-                await redis_client.aclose()
 
     gateway = create_proxy(
         target,
@@ -196,7 +281,6 @@ def create_gateway(
         auth=auth_provider,
         transforms=build_transforms(),
         middleware=[
-            AuthMiddleware(auth=github_user_check(settings)),
             RateLimitingMiddleware(
                 max_requests_per_second=5, burst_capacity=10, global_limit=True
             ),
@@ -207,18 +291,123 @@ def create_gateway(
         strict_input_validation=True,
     )
 
+    @gateway.custom_route(
+        "/.well-known/oauth-authorization-server",
+        methods=["GET", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def oauth_authorization_server_metadata(request: Request) -> Response:
+        methods = "GET, OPTIONS"
+        if request.method == "OPTIONS":
+            return _cors_preflight(methods)
+        return _json_no_store(
+            oauth_manager.authorization_server_metadata(),
+            cors=True,
+            methods=methods,
+        )
+
+    @gateway.custom_route(
+        "/register", methods=["POST", "OPTIONS"], include_in_schema=False
+    )
+    async def oauth_register(request: Request) -> Response:
+        methods = "POST, OPTIONS"
+        if request.method == "OPTIONS":
+            return _cors_preflight(methods)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise OAuthFlowError(
+                    "invalid_client_metadata",
+                    "registration body must be a JSON object",
+                )
+            redirect_uris = body.get("redirect_uris")
+            if not isinstance(redirect_uris, list) or not redirect_uris:
+                raise OAuthFlowError(
+                    "invalid_client_metadata",
+                    "redirect_uris must include at least one URI",
+                )
+            if any(
+                not isinstance(uri, str)
+                or uri not in settings.allowed_client_redirect_uris
+                for uri in redirect_uris
+            ):
+                raise OAuthFlowError(
+                    "invalid_redirect_uri", "redirect URI is not allowed"
+                )
+            return _json_no_store(
+                oauth_manager.register_client(body),
+                status_code=201,
+                cors=True,
+                methods=methods,
+            )
+        except OAuthFlowError as exc:
+            return _oauth_error_response(exc, cors=True, methods=methods)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return _oauth_error_response(
+                OAuthFlowError(
+                    "invalid_client_metadata", "registration body must be JSON"
+                ),
+                cors=True,
+                methods=methods,
+            )
+
+    @gateway.custom_route(
+        "/authorize", methods=["GET", "POST", "OPTIONS"], include_in_schema=False
+    )
+    async def oauth_authorize(request: Request) -> Response:
+        methods = "GET, POST, OPTIONS"
+        if request.method == "OPTIONS":
+            return _cors_preflight(methods)
+        try:
+            if request.method == "GET":
+                pending = oauth_manager.start_authorization(dict(request.query_params))
+                return _consent_page(pending)
+            form = GatewayOAuthManager.parse_form_body(await request.body())
+            redirect_url = oauth_manager.complete_authorization(
+                request_id=form.get("request_id", ""),
+                csrf_token=form.get("csrf_token", ""),
+                setup_token=form.get("setup_token", ""),
+            )
+            return RedirectResponse(
+                redirect_url,
+                status_code=302,
+                headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+            )
+        except OAuthFlowError as exc:
+            return _oauth_error_response(exc, cors=True, methods=methods)
+
+    @gateway.custom_route(
+        "/token", methods=["POST", "OPTIONS"], include_in_schema=False
+    )
+    async def oauth_token(request: Request) -> Response:
+        methods = "POST, OPTIONS"
+        if request.method == "OPTIONS":
+            return _cors_preflight(methods)
+        try:
+            form = GatewayOAuthManager.parse_form_body(await request.body())
+            return _json_no_store(
+                oauth_manager.exchange_token(form, request.headers),
+                cors=True,
+                methods=methods,
+            )
+        except OAuthFlowError as exc:
+            return _oauth_error_response(exc, cors=True, methods=methods)
+
     @gateway.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(_request: Request) -> Response:
         return JSONResponse({"status": "ok"})
 
     @gateway.custom_route("/ready", methods=["GET"], include_in_schema=False)
     async def ready(_request: Request) -> Response:
-        if redis_client is None or http_client is None:
+        if (
+            http_client is None
+            or not oauth_manager.storage_healthy
+            or not _store_is_writable(settings.oauth_store_path)
+        ):
             return JSONResponse({"status": "unavailable"}, status_code=503)
         try:
             upstream = await http_client.get(settings.upstream_health_url)
-            redis_ok = bool(await redis_client.ping())
-            if upstream.status_code != 200 or not redis_ok:
+            if upstream.status_code != 200:
                 raise RuntimeError("dependency unavailable")
         except Exception:
             return JSONResponse({"status": "unavailable"}, status_code=503)
@@ -227,45 +416,19 @@ def create_gateway(
     return gateway
 
 
-def build_redis_client(settings: GatewaySettings) -> Redis:
-    """Create the OAuth storage client with string decoding required by RedisStore."""
-    return Redis(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        db=settings.redis_db,
-        password=settings.redis_password,
-        decode_responses=True,
-        socket_connect_timeout=3,
-        socket_timeout=3,
-        health_check_interval=30,
-    )
-
-
 def build_production_gateway(settings: GatewaySettings):
-    redis_client = build_redis_client(settings)
-    store = RedisStore(
-        client=redis_client,
-        default_collection="supermemento-chatgpt-oauth",
-    )
-    encrypted_store = FernetEncryptionWrapper(
-        key_value=store,
-        fernet=Fernet(settings.storage_encryption_key.encode("ascii")),
-    )
     http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(10.0),
         follow_redirects=False,
         headers={"User-Agent": "supermemento-chatgpt-gateway/1.0"},
     )
-    auth_provider = build_auth_provider(
-        settings,
-        client_storage=encrypted_store,
-        http_client=http_client,
-    )
+    oauth_manager = build_oauth_manager(settings)
+    auth_provider = build_auth_provider(settings, oauth_manager)
     return create_gateway(
         settings,
         target=settings.upstream_mcp_url,
         auth_provider=auth_provider,
-        redis_client=redis_client,
+        oauth_manager=oauth_manager,
         http_client=http_client,
     )
 
@@ -273,7 +436,11 @@ def build_production_gateway(settings: GatewaySettings):
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     settings = GatewaySettings.from_env()
-    gateway = build_production_gateway(settings)
+    try:
+        gateway = build_production_gateway(settings)
+    except OAuthStoreError:
+        logger.exception("OAuth state could not be loaded")
+        raise SystemExit(1) from None
     gateway.run(
         transport="http",
         host="0.0.0.0",
