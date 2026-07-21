@@ -99,6 +99,8 @@ def _validated_store_path(value: str) -> str:
 
 def client_redirect_uri_allowed(uri: str, allowed_redirects: tuple[str, ...]) -> bool:
     """Match exact redirects or ChatGPT's tightly scoped dynamic callback."""
+    if uri == CHATGPT_DYNAMIC_REDIRECT_PATTERN:
+        return False
     if uri in allowed_redirects:
         return True
     if "?" in uri or "#" in uri:
