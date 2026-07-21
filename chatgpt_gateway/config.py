@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
-from cryptography.fernet import Fernet
-
 
 _DEFAULT_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
 _DEFAULT_INTERNAL_HOSTS = frozenset(
@@ -82,23 +80,30 @@ def _validated_upstream(value: str, allowed_hosts: frozenset[str]) -> str:
     return value.rstrip("/")
 
 
+def _validated_sha256(value: str, name: str) -> str:
+    normalized = value.lower()
+    if len(normalized) != 64 or any(ch not in "0123456789abcdef" for ch in normalized):
+        raise ValueError(f"{name} must be a SHA-256 hex digest")
+    return normalized
+
+
+def _validated_store_path(value: str) -> str:
+    path = Path(value)
+    if not path.is_absolute() or value.endswith("/"):
+        raise ValueError("MCP_GATEWAY_OAUTH_STORE_PATH must be an absolute file path")
+    return str(path)
+
+
 @dataclass(frozen=True, repr=False)
 class GatewaySettings:
-    """Validated settings. Secrets are intentionally excluded from repr."""
+    """Validated settings. Credential hashes are intentionally excluded from repr."""
 
     public_base_url: str
     public_hostname: str
     upstream_mcp_url: str
     upstream_health_url: str
-    github_client_id: str
-    github_client_secret: str
-    jwt_signing_key: str
-    storage_encryption_key: str
-    redis_host: str
-    redis_port: int
-    redis_db: int
-    redis_password: str
-    allowed_github_users: frozenset[str]
+    owner_token_sha256: str
+    oauth_store_path: str
     allowed_client_redirect_uris: tuple[str, ...]
     port: int
 
@@ -122,23 +127,12 @@ class GatewaySettings:
             allowed_internal_hosts,
         )
         upstream_health_url = upstream_mcp_url.removesuffix("/mcp") + "/health"
-        github_client_id = os.getenv("GITHUB_OAUTH_CLIENT_ID", "").strip()
-        if len(github_client_id) < 8:
-            raise ValueError("GITHUB_OAUTH_CLIENT_ID is missing or too short")
-        github_client_secret = _read_secret("GITHUB_OAUTH_CLIENT_SECRET", minimum=20)
-        jwt_signing_key = _read_secret("MCP_GATEWAY_JWT_SIGNING_KEY", minimum=32)
-        storage_encryption_key = _read_secret(
-            "MCP_GATEWAY_STORAGE_ENCRYPTION_KEY", minimum=40
+        owner_token_sha256 = _validated_sha256(
+            _read_secret("MCP_GATEWAY_OWNER_TOKEN_SHA256", minimum=64),
+            "MCP_GATEWAY_OWNER_TOKEN_SHA256",
         )
-        try:
-            Fernet(storage_encryption_key.encode("ascii"))
-        except (ValueError, UnicodeEncodeError) as exc:
-            raise ValueError(
-                "MCP_GATEWAY_STORAGE_ENCRYPTION_KEY is not a valid Fernet key"
-            ) from exc
-        redis_password = _read_secret("MCP_GATEWAY_REDIS_PASSWORD", minimum=24)
-        allowed_users = frozenset(
-            value.lower() for value in _csv("ALLOWED_GITHUB_USERS")
+        oauth_store_path = _validated_store_path(
+            os.getenv("MCP_GATEWAY_OAUTH_STORE_PATH", "/data/oauth-store.json").strip()
         )
         redirects = _csv("ALLOWED_CLIENT_REDIRECT_URIS", default=_DEFAULT_REDIRECT)
         for redirect in redirects:
@@ -148,30 +142,18 @@ class GatewaySettings:
                     "ALLOWED_CLIENT_REDIRECT_URIS must contain absolute HTTPS URLs"
                 )
         try:
-            redis_port = int(os.getenv("REDIS_PORT", "6379"))
-            redis_db = int(os.getenv("REDIS_DB", "0"))
             port = int(os.getenv("PORT", "8080"))
         except ValueError as exc:
-            raise ValueError("PORT, REDIS_PORT, and REDIS_DB must be integers") from exc
-        if not 1 <= redis_port <= 65535 or not 1 <= port <= 65535 or redis_db < 0:
-            raise ValueError("Invalid port or Redis database number")
-        redis_host = os.getenv("REDIS_HOST", "supermemento-chatgpt-redis").strip()
-        if not redis_host or "://" in redis_host:
-            raise ValueError("REDIS_HOST must be a hostname, not a URL")
+            raise ValueError("PORT must be an integer") from exc
+        if not 1 <= port <= 65535:
+            raise ValueError("Invalid port")
         return cls(
             public_base_url=public_base_url,
             public_hostname=public_hostname,
             upstream_mcp_url=upstream_mcp_url,
             upstream_health_url=upstream_health_url,
-            github_client_id=github_client_id,
-            github_client_secret=github_client_secret,
-            jwt_signing_key=jwt_signing_key,
-            storage_encryption_key=storage_encryption_key,
-            redis_host=redis_host,
-            redis_port=redis_port,
-            redis_db=redis_db,
-            redis_password=redis_password,
-            allowed_github_users=allowed_users,
+            owner_token_sha256=owner_token_sha256,
+            oauth_store_path=oauth_store_path,
             allowed_client_redirect_uris=redirects,
             port=port,
         )

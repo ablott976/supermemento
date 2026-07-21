@@ -1,106 +1,97 @@
 # Supermemento para ChatGPT
 
-Entrada MCP autenticada y separada para usar Supermemento desde un Proyecto de ChatGPT. No sustituye ni modifica `supermemento-api`.
+Entrada MCP autenticada y separada para usar el Supermemento existente desde un Proyecto de ChatGPT. No sustituye ni modifica `supermemento` ni `supermemento-api`.
 
 ## Arquitectura
 
 ```text
-ChatGPT -> HTTPS + OAuth -> gateway -> http://n8n_supermemento:80/mcp
-supermemento-api ------------------> http://n8n_supermemento:80/mcp
+ChatGPT -> HTTPS + OAuth local -> gateway -> http://n8n_supermemento:80/mcp
+supermemento-api --------------------------> http://n8n_supermemento:80/mcp
 ```
 
 - URL MCP: `https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host/mcp`
-- Callback GitHub: `https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host/auth/callback`
 - Liveness: `/health`
 - Readiness: `/ready`
+- Estado OAuth persistente: `/data/oauth-store.json`
 
-## Seguridad
+## OAuth
 
-- OAuth 2.1 con authorization code, PKCE y consentimiento.
-- GitHub solo verifica identidad; no se solicitan permisos sobre repositorios.
-- Solo acceden los logins incluidos en `ALLOWED_GITHUB_USERS`.
-- Estado OAuth persistente en Redis y cifrado antes de almacenarse.
-- Herramientas ocultas por defecto. Se expone una allowlist de lectura y escritura no destructiva.
-- `ingest_url`, `ingest_document` y `crawl_*` quedan fuera del canario hasta corregir la validación SSRF del crawler común o añadir una tool de texto forzada.
+El gateway incorpora el mismo patrón de autorización del gateway Hermes:
+
+- Dynamic Client Registration para ChatGPT.
+- Authorization code + PKCE `S256`.
+- Access tokens de una hora y refresh tokens rotatorios.
+- Consentimiento inicial mediante un token de propietario.
+- El servicio recibe únicamente el SHA-256 del token de propietario.
+- El token de propietario solo aprueba OAuth; no se acepta como bearer directo del MCP.
+- Client secrets, authorization codes, access tokens y refresh tokens se guardan solo como hashes.
+- El estado OAuth persiste en un volumen dedicado; una réplica evita escrituras concurrentes.
+
+No requiere GitHub OAuth, Redis ni permisos sobre repositorios.
+
+Generación del token de propietario en un host seguro:
+
+```bash
+python3 - <<'PY'
+import hashlib, secrets
+raw = 'smo_' + secrets.token_urlsafe(32)
+print(raw)
+print(hashlib.sha256(raw.encode()).hexdigest())
+PY
+```
+
+- Guardar el valor `smo_...` en un archivo owner-only fuera del contenedor.
+- Configurar únicamente el digest SHA-256 como `MCP_GATEWAY_OWNER_TOKEN_SHA256` o mediante `_FILE`.
+- Introducir el token bruto una sola vez en la pantalla de consentimiento al conectar ChatGPT.
+- No enviarlo por chat, guardarlo en Git ni mostrarlo en logs.
+
+## Seguridad de tools
+
+- Herramientas ocultas por defecto; solo se exponen nueve tools explícitas.
+- Lecturas con defaults seguros para `zkteco-pmm`.
+- Escrituras no destructivas marcadas correctamente en MCP.
+- `ingest_url`, `ingest_document` y `crawl_*` quedan fuera hasta corregir la validación SSRF común.
 - `setup_schema`, mantenimiento, delete, forget y update no se publican.
 - Rate limit global, respuestas limitadas y errores internos ocultos.
-- La imagen corre sin root y las dependencias están fijadas con hashes.
+- Imagen non-root, dependencias fijadas con hashes y root filesystem read-only en producción.
 
-## GitHub OAuth App
-
-GitHub obliga a crearla desde la interfaz:
-
-1. Abrir `https://github.com/settings/developers`.
-2. Crear una **OAuth App** llamada `Supermemento ChatGPT`.
-3. Homepage: `https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host`.
-4. Callback: `https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host/auth/callback`.
-5. Guardar el Client ID y el Client Secret en el gestor de secretos del despliegue. No incluirlos en Git, tickets o chats.
-
-## Configuración del gateway
-
-Variables no secretas:
+## Configuración
 
 ```dotenv
 PUBLIC_BASE_URL=https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host
 UPSTREAM_MCP_URL=http://n8n_supermemento:80/mcp
-UPSTREAM_ALLOWED_HOSTS=n8n_supermemento,n8n-supermemento,supermemento
-GITHUB_OAUTH_CLIENT_ID=<client-id>
-ALLOWED_GITHUB_USERS=ablott976
+UPSTREAM_ALLOWED_HOSTS=n8n_supermemento
 ALLOWED_CLIENT_REDIRECT_URIS=https://chatgpt.com/connector_platform_oauth_redirect
-REDIS_HOST=supermemento-chatgpt-redis
-REDIS_PORT=6379
-REDIS_DB=0
+MCP_GATEWAY_OWNER_TOKEN_SHA256_FILE=/run/secrets/supermemento_chatgpt_owner_token_sha256
+MCP_GATEWAY_OAUTH_STORE_PATH=/data/oauth-store.json
 PORT=8080
 ```
 
-Secretos, preferentemente montados como archivos:
+El upstream solo acepta HTTP interno con hostname allowlisted. El gateway no necesita claves de Neo4j, OpenAI, Anthropic ni `supermemento-api`.
 
-```dotenv
-GITHUB_OAUTH_CLIENT_SECRET_FILE=/run/secrets/supermemento_chatgpt_github_secret
-MCP_GATEWAY_JWT_SIGNING_KEY_FILE=/run/secrets/supermemento_chatgpt_jwt_key
-MCP_GATEWAY_STORAGE_ENCRYPTION_KEY_FILE=/run/secrets/supermemento_chatgpt_storage_key
-MCP_GATEWAY_REDIS_PASSWORD_FILE=/run/secrets/supermemento_chatgpt_redis_password
-```
+## Persistencia
 
-El código también acepta las variables sin sufijo `_FILE` para plataformas que no montan secretos, pero nunca deben formar parte de la imagen o del repositorio.
+Montar un volumen dedicado en `/data`. El fichero OAuth se escribe de forma atómica con permisos restrictivos y no contiene tokens brutos. Un store ilegible o corrupto bloquea el arranque.
 
-Generación local, sin mostrar valores:
-
-```bash
-openssl rand -base64 48 > jwt-key
-python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' > storage-key
-openssl rand -base64 36 > redis-password
-chmod 600 jwt-key storage-key redis-password
-```
-
-## Redis
-
-Usar una instancia dedicada, sin dominio ni puerto publicado, unida solo a la red interna del gateway. Activar persistencia AOF y exigir contraseña. No reutilizar Redis de n8n.
-
-## Build y smoke
-
-```bash
-docker build -f Dockerfile.chatgpt-gateway -t supermemento-chatgpt:local .
-docker inspect supermemento-chatgpt:local --format '{{.Config.User}}'
-```
-
-Antes de publicar:
+## Smoke antes de conectar ChatGPT
 
 - `/health` devuelve `200`.
-- `/ready` devuelve `200` con Redis y upstream disponibles.
+- `/ready` devuelve `200` con el volumen escribible y upstream disponible.
 - `POST /mcp` sin token devuelve `401` con `WWW-Authenticate`.
-- `/.well-known/oauth-protected-resource/mcp` y `/.well-known/oauth-authorization-server` devuelven metadata válida.
-- ChatGPT solo descubre las tools de la allowlist.
+- `/.well-known/oauth-protected-resource/mcp` anuncia el recurso correcto.
+- `/.well-known/oauth-authorization-server` anuncia DCR, authorization, token y PKCE `S256`.
+- DCR acepta únicamente el callback oficial configurado.
+- ChatGPT descubre exactamente nueve tools.
 
 ## Conexión en ChatGPT
 
-1. Activar Developer mode en ChatGPT.
-2. Crear una app desde Settings → Plugins.
-3. MCP server URL: `https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host/mcp`.
-4. Completar la autorización GitHub con `ablott976`.
+1. Activar Developer mode.
+2. Crear la app `Supermemento` con URL `https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host/mcp`.
+3. ChatGPT abrirá `Autorizar Supermemento`.
+4. Introducir el token de propietario bruto desde el canal seguro.
 5. Verificar tools y añadir la app al Proyecto.
-6. Ejecutar primero búsquedas de solo lectura; después una creación controlada en un containerTag de canario.
+6. Ejecutar primero búsquedas; después una creación controlada en `chatgpt-mcp-canary`.
 
 ## Compatibilidad y rollback
 
-`supermemento-api` no cambia. El rollback consiste únicamente en retirar el nuevo gateway y su Redis. No se debe modificar ni borrar `n8n_supermemento-api`, su API key, su dominio ni `SUPERMEMENTO_MCP_URL`.
+`supermemento` y `supermemento-api` no cambian. El rollback consiste en retirar o escalar a cero solo el gateway nuevo y conservar su volumen temporalmente. No modificar ni borrar `n8n_supermemento`, `n8n_supermemento-api`, su API key, su dominio ni `SUPERMEMENTO_MCP_URL`.
