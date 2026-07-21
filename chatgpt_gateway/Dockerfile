@@ -11,6 +11,7 @@ RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements.l
     && rm -f /tmp/requirements.lock
 
 COPY --chown=65532:65532 . /app/chatgpt_gateway
+RUN install -d -o 65532 -g 65532 -m 0700 /data
 
 USER 65532:65532
 EXPOSE 8080
