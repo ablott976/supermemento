@@ -84,6 +84,11 @@ def test_chatgpt_dynamic_redirect_is_strict(redirect_uri: str, allowed: bool) ->
     assert client_redirect_uri_allowed(redirect_uri, configured) is allowed
 
 
+def test_chatgpt_dynamic_redirect_template_is_rejected_even_if_configured() -> None:
+    configured = (CHATGPT_DYNAMIC_REDIRECT_PATTERN,)
+    assert not client_redirect_uri_allowed(CHATGPT_DYNAMIC_REDIRECT_PATTERN, configured)
+
+
 def test_host_origin_guard_allows_only_gateway_and_chatgpt(tmp_path: Path) -> None:
     cfg = settings(tmp_path)
     manager = build_oauth_manager(cfg)
