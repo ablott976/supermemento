@@ -1013,19 +1013,35 @@ class GatewayOAuthManager:
     def _reserve_client_slot(self) -> None:
         if len(self._clients) < self.max_clients:
             return
+        now = time.time()
+        active_client_ids = {
+            record.client_id
+            for store in (
+                self._pending_authorizations,
+                self._authorization_codes,
+                self._access_tokens,
+                self._refresh_tokens,
+            )
+            for record in store.values()
+            if record.expires_at >= now
+        }
         removable = sorted(
             (
                 client
                 for client in self._clients.values()
-                if client.authorized_at is None
+                if client.client_id not in active_client_ids
             ),
-            key=lambda client: client.issued_at,
+            key=lambda client: (
+                client.authorized_at is not None,
+                client.authorized_at or client.issued_at,
+                client.issued_at,
+            ),
         )
         needed = len(self._clients) - self.max_clients + 1
         if len(removable) < needed:
             raise OAuthFlowError(
                 "temporarily_unavailable",
-                "OAuth client registration capacity is reserved for already-authorized clients",
+                "OAuth client registration capacity is reserved for active clients",
                 status_code=503,
             )
         for client in removable[:needed]:
