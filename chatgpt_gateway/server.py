@@ -248,8 +248,11 @@ def _consent_page(pending: Any, *, error: str | None = None) -> HTMLResponse:
 
 def _store_is_writable(store_path: str) -> bool:
     path = Path(store_path)
-    target = path if path.exists() else path.parent
-    return target.exists() and os.access(target, os.W_OK)
+    directory = path.parent
+    return (
+        directory.is_dir()
+        and os.access(directory, os.W_OK | os.X_OK)
+    )
 
 
 def create_gateway(

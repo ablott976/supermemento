@@ -268,6 +268,41 @@ def test_directory_fsync_failure_poisoned_manager_fails_closed(
         _register_client(manager)
 
 
+def test_ready_checks_existing_store_parent(
+    monkeypatch, tmp_path: Path
+) -> None:
+    cfg = settings(tmp_path)
+    manager = build_oauth_manager(cfg)
+    _register_client(manager)
+    provider = build_auth_provider(cfg, manager)
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"status": "ok"})
+        )
+    )
+    gateway = create_gateway(
+        cfg,
+        target=_backend(),
+        auth_provider=provider,
+        oauth_manager=manager,
+        http_client=http_client,
+    )
+    app = gateway.http_app(path="/mcp", transport="http", stateless_http=True)
+    checked: list[tuple[Path, int]] = []
+
+    def deny_access(path: os.PathLike[str], mode: int) -> bool:
+        checked.append((Path(path), mode))
+        return False
+
+    with TestClient(app) as client:
+        monkeypatch.setattr(os, "access", deny_access)
+        response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+    assert checked == [(tmp_path, os.W_OK | os.X_OK)]
+
+
 def test_authorized_client_capacity_is_bounded(tmp_path: Path) -> None:
     store_path = tmp_path / "bounded-oauth.json"
     manager = GatewayOAuthManager(
@@ -287,6 +322,52 @@ def test_authorized_client_capacity_is_bounded(tmp_path: Path) -> None:
         _register_client(manager)
     after = json.loads(store_path.read_text(encoding="utf-8"))["clients"]
     assert after == before
+
+
+def test_client_with_pending_authorization_is_not_evicted_at_capacity(
+    tmp_path: Path,
+) -> None:
+    manager = GatewayOAuthManager(
+        issuer_url="https://mcp.example.test",
+        resource_url="https://mcp.example.test/mcp",
+        consent_token_sha256=sha256_token(OWNER_TOKEN),
+        max_clients=1,
+        oauth_store_path=str(tmp_path / "bounded-oauth.json"),
+    )
+    client = _register_client(manager)
+    manager.start_authorization(
+        {
+            "response_type": "code",
+            "client_id": client["client_id"],
+            "redirect_uri": CHATGPT_REDIRECT,
+            "code_challenge": _pkce_challenge("p" * 64),
+            "code_challenge_method": "S256",
+        }
+    )
+
+    with pytest.raises(OAuthFlowError, match="capacity"):
+        _register_client(manager)
+
+
+def test_expired_authorized_client_is_evicted_at_capacity(tmp_path: Path) -> None:
+    store_path = tmp_path / "bounded-oauth.json"
+    manager = GatewayOAuthManager(
+        issuer_url="https://mcp.example.test",
+        resource_url="https://mcp.example.test/mcp",
+        legacy_token_sha256=None,
+        consent_token_sha256=sha256_token(OWNER_TOKEN),
+        access_token_ttl_seconds=-1,
+        refresh_token_ttl_seconds=-1,
+        max_clients=1,
+        oauth_store_path=str(store_path),
+    )
+    expired = _register_client(manager)
+    _issue_token(manager, expired["client_id"])
+
+    replacement = _register_client(manager)
+
+    clients = json.loads(store_path.read_text(encoding="utf-8"))["clients"]
+    assert list(clients) == [replacement["client_id"]]
 
 
 def _backend() -> FastMCP:
