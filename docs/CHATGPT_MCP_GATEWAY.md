@@ -61,7 +61,7 @@ PY
 PUBLIC_BASE_URL=https://n8n-supermemento-chatgpt.9kpuqs.easypanel.host
 UPSTREAM_MCP_URL=http://n8n_supermemento:80/mcp
 UPSTREAM_ALLOWED_HOSTS=n8n_supermemento
-ALLOWED_CLIENT_REDIRECT_URIS=https://chatgpt.com/connector/oauth/{callback_id},https://chatgpt.com/connector_platform_oauth_redirect
+ALLOWED_CLIENT_REDIRECT_URIS=https://chatgpt.com/connector_platform_oauth_redirect
 MCP_GATEWAY_OWNER_TOKEN_SHA256_FILE=/run/secrets/supermemento_chatgpt_owner_token_sha256
 MCP_GATEWAY_OAUTH_STORE_PATH=/data/oauth-store.json
 PORT=8080
@@ -69,7 +69,7 @@ PORT=8080
 
 El upstream solo acepta HTTP interno con hostname allowlisted. El gateway no necesita claves de Neo4j, OpenAI, Anthropic ni `supermemento-api`.
 
-Para apps nuevas, OpenAI asigna un callback dinámico `https://chatgpt.com/connector/oauth/{callback_id}`. El gateway solo acepta HTTPS, host exacto `chatgpt.com`, un único `callback_id` alfanumérico/base64url y ninguna credencial, query, fragmento, puerto o ruta adicional. El callback legado se mantiene como coincidencia exacta para apps ya publicadas.
+Para apps nuevas, OpenAI asigna un callback dinámico `https://chatgpt.com/connector/oauth/{callback_id}`. El gateway reconoce internamente solo ese patrón oficial: HTTPS, host exacto `chatgpt.com`, un único `callback_id` alfanumérico/base64url y ninguna credencial, query, fragmento, puerto o ruta adicional. `ALLOWED_CLIENT_REDIRECT_URIS` queda reservado para callbacks exactos, incluido el legado de apps ya publicadas; no contiene patrones que EasyPanel pueda reinterpretar.
 
 ## Persistencia
 

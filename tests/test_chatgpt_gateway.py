@@ -48,10 +48,7 @@ def settings(tmp_path: Path) -> GatewaySettings:
         upstream_health_url="http://supermemento:80/health",
         owner_token_sha256=sha256_token(OWNER_TOKEN),
         oauth_store_path=str(tmp_path / "oauth-store.json"),
-        allowed_client_redirect_uris=(
-            CHATGPT_DYNAMIC_REDIRECT_PATTERN,
-            CHATGPT_REDIRECT,
-        ),
+        allowed_client_redirect_uris=(CHATGPT_REDIRECT,),
         port=8080,
     )
 
@@ -82,7 +79,7 @@ def _pkce_challenge(verifier: str) -> str:
     ],
 )
 def test_chatgpt_dynamic_redirect_is_strict(redirect_uri: str, allowed: bool) -> None:
-    configured = (CHATGPT_DYNAMIC_REDIRECT_PATTERN, CHATGPT_REDIRECT)
+    configured = (CHATGPT_REDIRECT,)
     assert client_redirect_uri_allowed(redirect_uri, configured) is allowed
 
 
