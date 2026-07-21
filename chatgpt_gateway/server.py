@@ -57,6 +57,21 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
 ALLOWED_TOOLS = frozenset(TOOL_POLICIES)
 
 
+def build_host_origin_options(settings: GatewaySettings) -> dict[str, object]:
+    """Return the exact public hosts and browser origins trusted in production."""
+    return {
+        "host_origin_protection": True,
+        "allowed_hosts": [
+            settings.public_hostname,
+            "localhost",
+            "127.0.0.1",
+            "supermemento-chatgpt",
+            "n8n-supermemento-chatgpt",
+        ],
+        "allowed_origins": [settings.public_base_url, "https://chatgpt.com"],
+    }
+
+
 class ChatGPTAnnotations(Transform):
     """Attach explicit MCP safety annotations to allowlisted tools."""
 
@@ -451,15 +466,8 @@ def main() -> None:
         stateless_http=True,
         json_response=True,
         show_banner=False,
-        host_origin_protection=True,
-        allowed_hosts=[
-            settings.public_hostname,
-            "localhost",
-            "127.0.0.1",
-            "supermemento-chatgpt",
-            "n8n-supermemento-chatgpt",
-        ],
         uvicorn_config={"access_log": False, "server_header": False},
+        **build_host_origin_options(settings),
     )
 
 

@@ -53,6 +53,7 @@ PY
 - `ingest_url`, `ingest_document` y `crawl_*` quedan fuera hasta corregir la validación SSRF común.
 - `setup_schema`, mantenimiento, delete, forget y update no se publican.
 - Rate limit global, respuestas limitadas y errores internos ocultos.
+- Protección Host/Origin estricta: solo el dominio público del gateway y `https://chatgpt.com` pueden originar peticiones de navegador; cualquier otro origen se rechaza antes de OAuth.
 - Imagen non-root, dependencias fijadas con hashes, Tini y `Cap Drop=ALL` en EasyPanel.
 
 ## Configuración

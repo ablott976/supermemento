@@ -29,6 +29,7 @@ from chatgpt_gateway.owner_oauth import (
 from chatgpt_gateway.server import (
     ALLOWED_TOOLS,
     build_auth_provider,
+    build_host_origin_options,
     build_oauth_manager,
     build_transforms,
     create_gateway,
@@ -81,6 +82,54 @@ def _pkce_challenge(verifier: str) -> str:
 def test_chatgpt_dynamic_redirect_is_strict(redirect_uri: str, allowed: bool) -> None:
     configured = (CHATGPT_REDIRECT,)
     assert client_redirect_uri_allowed(redirect_uri, configured) is allowed
+
+
+def test_host_origin_guard_allows_only_gateway_and_chatgpt(tmp_path: Path) -> None:
+    cfg = settings(tmp_path)
+    manager = build_oauth_manager(cfg)
+    provider = build_auth_provider(cfg, manager)
+    gateway = create_gateway(
+        cfg,
+        target=_backend(),
+        auth_provider=provider,
+        oauth_manager=manager,
+    )
+    app = gateway.http_app(
+        path="/mcp",
+        transport="http",
+        stateless_http=True,
+        json_response=True,
+        **build_host_origin_options(cfg),
+    )
+    registration = {
+        "client_name": "ChatGPT origin test",
+        "redirect_uris": [CHATGPT_DYNAMIC_REDIRECT],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+        "scope": "supermemento:access",
+    }
+    with TestClient(app, base_url=cfg.public_base_url) as client:
+        same_origin = client.post(
+            "/register", headers={"Origin": cfg.public_base_url}, json=registration
+        )
+        assert same_origin.status_code == 201
+
+        chatgpt_origin = client.post(
+            "/register",
+            headers={"Origin": "https://chatgpt.com"},
+            json=registration,
+        )
+        assert chatgpt_origin.status_code == 201
+
+        for rejected_origin in ("https://evil.example", "null"):
+            rejected = client.post(
+                "/register",
+                headers={"Origin": rejected_origin},
+                json=registration,
+            )
+            assert rejected.status_code == 403
+            assert rejected.text == "Forbidden Origin"
 
 
 def _register_client(manager) -> dict:
