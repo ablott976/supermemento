@@ -15,7 +15,11 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from chatgpt_gateway.config import GatewaySettings
+from chatgpt_gateway.config import (
+    CHATGPT_DYNAMIC_REDIRECT_PATTERN,
+    GatewaySettings,
+    client_redirect_uri_allowed,
+)
 from chatgpt_gateway.owner_oauth import (
     GatewayOAuthManager,
     OAuthFlowError,
@@ -33,6 +37,7 @@ from chatgpt_gateway.server import (
 
 OWNER_TOKEN = "smo_" + "owner-token-for-focused-tests" * 2
 CHATGPT_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
+CHATGPT_DYNAMIC_REDIRECT = "https://chatgpt.com/connector/oauth/cb_test-123"
 
 
 def settings(tmp_path: Path) -> GatewaySettings:
@@ -43,7 +48,10 @@ def settings(tmp_path: Path) -> GatewaySettings:
         upstream_health_url="http://supermemento:80/health",
         owner_token_sha256=sha256_token(OWNER_TOKEN),
         oauth_store_path=str(tmp_path / "oauth-store.json"),
-        allowed_client_redirect_uris=(CHATGPT_REDIRECT,),
+        allowed_client_redirect_uris=(
+            CHATGPT_DYNAMIC_REDIRECT_PATTERN,
+            CHATGPT_REDIRECT,
+        ),
         port=8080,
     )
 
@@ -51,6 +59,31 @@ def settings(tmp_path: Path) -> GatewaySettings:
 def _pkce_challenge(verifier: str) -> str:
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+@pytest.mark.parametrize(
+    ("redirect_uri", "allowed"),
+    [
+        (CHATGPT_DYNAMIC_REDIRECT, True),
+        (CHATGPT_REDIRECT, True),
+        ("https://chatgpt.com/connector/oauth/abc_DEF-123", True),
+        (CHATGPT_DYNAMIC_REDIRECT_PATTERN, False),
+        ("https://evil.example/connector/oauth/abc", False),
+        ("https://chatgpt.com/connector/oauth/", False),
+        ("https://chatgpt.com/connector/oauth/a/b", False),
+        ("https://chatgpt.com/connector/oauth/abc?next=evil", False),
+        ("https://chatgpt.com/connector/oauth/abc?", False),
+        ("https://chatgpt.com/connector/oauth/abc#fragment", False),
+        ("https://chatgpt.com/connector/oauth/abc#", False),
+        ("https://user@chatgpt.com/connector/oauth/abc", False),
+        ("https://chatgpt.com:443/connector/oauth/abc", False),
+        ("https://chatgpt.com/connector/oauth/abc%2Fdef", False),
+        ("http://chatgpt.com/connector/oauth/abc", False),
+    ],
+)
+def test_chatgpt_dynamic_redirect_is_strict(redirect_uri: str, allowed: bool) -> None:
+    configured = (CHATGPT_DYNAMIC_REDIRECT_PATTERN, CHATGPT_REDIRECT)
+    assert client_redirect_uri_allowed(redirect_uri, configured) is allowed
 
 
 def _register_client(manager) -> dict:
@@ -268,9 +301,7 @@ def test_directory_fsync_failure_poisoned_manager_fails_closed(
         _register_client(manager)
 
 
-def test_ready_checks_existing_store_parent(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_ready_checks_existing_store_parent(monkeypatch, tmp_path: Path) -> None:
     cfg = settings(tmp_path)
     manager = build_oauth_manager(cfg)
     _register_client(manager)
@@ -527,6 +558,20 @@ def test_http_oauth_dcr_redirects_and_authenticated_mcp(tmp_path: Path) -> None:
         }
         allowed_registration = client.post("/register", json=registration)
         assert allowed_registration.status_code == 201
+        dynamic_registration = client.post(
+            "/register",
+            json={**registration, "redirect_uris": [CHATGPT_DYNAMIC_REDIRECT]},
+        )
+        assert dynamic_registration.status_code == 201
+        literal_template_registration = client.post(
+            "/register",
+            json={
+                **registration,
+                "redirect_uris": [CHATGPT_DYNAMIC_REDIRECT_PATTERN],
+            },
+        )
+        assert literal_template_registration.status_code == 400
+        assert literal_template_registration.json()["error"] == "invalid_redirect_uri"
         rejected_registration = client.post(
             "/register",
             json={**registration, "redirect_uris": ["https://evil.example/callback"]},

@@ -23,7 +23,7 @@ from pydantic import AnyHttpUrl
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from .config import GatewaySettings
+from .config import GatewaySettings, client_redirect_uri_allowed
 from .owner_oauth import (
     PUBLIC_SCOPES,
     GatewayOAuthManager,
@@ -328,7 +328,9 @@ def create_gateway(
                 )
             if any(
                 not isinstance(uri, str)
-                or uri not in settings.allowed_client_redirect_uris
+                or not client_redirect_uri_allowed(
+                    uri, settings.allowed_client_redirect_uris
+                )
                 for uri in redirect_uris
             ):
                 raise OAuthFlowError(

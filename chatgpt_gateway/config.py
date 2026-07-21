@@ -6,10 +6,16 @@ from dataclasses import dataclass
 from ipaddress import ip_address
 import os
 from pathlib import Path
+import re
 from urllib.parse import urlparse
 
 
-_DEFAULT_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
+CHATGPT_DYNAMIC_REDIRECT_PATTERN = "https://chatgpt.com/connector/oauth/{callback_id}"
+CHATGPT_LEGACY_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
+_DEFAULT_REDIRECTS = ",".join(
+    (CHATGPT_DYNAMIC_REDIRECT_PATTERN, CHATGPT_LEGACY_REDIRECT)
+)
+_CHATGPT_CALLBACK_ID = re.compile(r"[A-Za-z0-9_-]{1,256}")
 _DEFAULT_INTERNAL_HOSTS = frozenset(
     {"n8n_supermemento", "n8n-supermemento", "supermemento", "localhost"}
 )
@@ -94,6 +100,32 @@ def _validated_store_path(value: str) -> str:
     return str(path)
 
 
+def client_redirect_uri_allowed(uri: str, allowed_redirects: tuple[str, ...]) -> bool:
+    """Match exact redirects or ChatGPT's tightly scoped dynamic callback."""
+    if uri in allowed_redirects and uri != CHATGPT_DYNAMIC_REDIRECT_PATTERN:
+        return True
+    if CHATGPT_DYNAMIC_REDIRECT_PATTERN not in allowed_redirects:
+        return False
+    if "?" in uri or "#" in uri:
+        return False
+
+    parsed = urlparse(uri)
+    callback_prefix = "/connector/oauth/"
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "chatgpt.com"
+        or parsed.username
+        or parsed.password
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.startswith(callback_prefix)
+    ):
+        return False
+    callback_id = parsed.path.removeprefix(callback_prefix)
+    return _CHATGPT_CALLBACK_ID.fullmatch(callback_id) is not None
+
+
 @dataclass(frozen=True, repr=False)
 class GatewaySettings:
     """Validated settings. Credential hashes are intentionally excluded from repr."""
@@ -134,10 +166,19 @@ class GatewaySettings:
         oauth_store_path = _validated_store_path(
             os.getenv("MCP_GATEWAY_OAUTH_STORE_PATH", "/data/oauth-store.json").strip()
         )
-        redirects = _csv("ALLOWED_CLIENT_REDIRECT_URIS", default=_DEFAULT_REDIRECT)
+        redirects = _csv("ALLOWED_CLIENT_REDIRECT_URIS", default=_DEFAULT_REDIRECTS)
         for redirect in redirects:
+            if redirect == CHATGPT_DYNAMIC_REDIRECT_PATTERN:
+                continue
             parsed = urlparse(redirect)
-            if parsed.scheme != "https" or not parsed.hostname or parsed.fragment:
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+            ):
                 raise ValueError(
                     "ALLOWED_CLIENT_REDIRECT_URIS must contain absolute HTTPS URLs"
                 )
