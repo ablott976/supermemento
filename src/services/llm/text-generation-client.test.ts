@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { AppConfig } from "../../config.js";
@@ -364,6 +367,25 @@ describe("text generation providers", () => {
     });
     assert.match(prompt ?? "", /Expand the query/);
     assert.match(prompt ?? "", /reloj fichaje/);
+  });
+
+  it("restricts an existing Codex home to owner-only permissions", () => {
+    const codexHome = mkdtempSync(join(tmpdir(), "supermemento-codex-permissions-"));
+    chmodSync(codexHome, 0o755);
+    try {
+      new OpenAiCodexSubscriptionTextGenerationClient(
+        config({ LLM_PROVIDER: "openai-codex-subscription", CODEX_HOME: codexHome }),
+        {
+          startThread: () => ({
+            run: async () => ({ finalResponse: "unused" })
+          })
+        }
+      );
+
+      assert.equal(statSync(codexHome).mode & 0o777, 0o700);
+    } finally {
+      rmSync(codexHome, { recursive: true, force: true });
+    }
   });
 
   it("does not pass embedding or relay credentials to the Codex child process", () => {

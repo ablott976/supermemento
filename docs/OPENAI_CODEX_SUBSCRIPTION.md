@@ -29,6 +29,8 @@ LLM_REASONING_EFFORT=low
 
 `CODEX_HOME` and `OPENAI_CODEX_WORKDIR` must be absolute. Mount `/data/supermemento-codex` from persistent storage. Do not point it at a developer's normal `~/.codex`; it is a service-specific credential and session store.
 
+The provider normalizes the `CODEX_HOME` directory to mode `0700` before the runtime starts. This also protects a newly created EasyPanel volume, whose initial mount permissions may otherwise be broader.
+
 ## Authenticate with ChatGPT
 
 The official Codex runtime supports browser login and device-code login. In a headless deployment, open a shell in the Supermemento container and run:

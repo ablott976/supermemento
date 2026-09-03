@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Codex } from "@openai/codex-sdk";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import OpenAI from "openai";
 
 import type { AppConfig } from "../../config.js";
@@ -367,6 +367,7 @@ export class OpenAiCodexSubscriptionTextGenerationClient implements TextGenerati
     this.workingDirectory = config.OPENAI_CODEX_WORKDIR;
 
     mkdirSync(config.CODEX_HOME, { recursive: true, mode: 0o700 });
+    chmodSync(config.CODEX_HOME, 0o700);
     this.client = client ?? (new Codex({
       env: buildCodexSubscriptionEnvironment(config),
       config: {
