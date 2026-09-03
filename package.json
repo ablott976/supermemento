@@ -8,6 +8,11 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "npm run test:ts",
+    "test:ts": "node --import tsx --test $(find src -name '*.test.ts' ! -path 'src/tests/*' -print)",
+    "test:python": "python -m pytest tests",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "setup:schema": "tsx src/schema/setup-schema.ts"
@@ -15,15 +20,19 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
     "@modelcontextprotocol/sdk": "^1.18.0",
+    "@openai/codex-sdk": "0.153.0",
     "neo4j-driver": "^5.28.1",
     "openai": "^5.15.0",
     "uuid": "^11.1.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.3.0",
     "@types/uuid": "^10.0.0",
+    "eslint": "^10.9.1",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.69.0"
   }
 }

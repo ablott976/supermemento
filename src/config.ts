@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 
 function rawUrlHost(value: string): string | undefined {
@@ -78,12 +79,16 @@ const envSchema = z
     NEO4J_PASSWORD: z.string().min(1),
     OPENAI_API_KEY: z.string().min(1),
     OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-large"),
-    LLM_PROVIDER: z.enum(["anthropic", "openai-codex"]).default("anthropic"),
+    LLM_PROVIDER: z
+      .enum(["anthropic", "openai-codex", "openai-codex-subscription"])
+      .default("anthropic"),
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
     ANTHROPIC_MODEL: z.string().min(1).default("claude-haiku-4-5-20251001"),
     OPENAI_CODEX_MODEL: z.string().min(1).default("gpt-5.6-luna"),
     OPENAI_CODEX_BASE_URL: z.string().url().optional(),
     OPENAI_CODEX_RELAY_KEY: z.string().min(32).optional(),
+    CODEX_HOME: z.string().min(1).default("/data/supermemento-codex"),
+    OPENAI_CODEX_WORKDIR: z.string().min(1).default("/app"),
     LLM_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(180000),
     LLM_REASONING_EFFORT: z.enum(["low", "medium", "high"]).default("low"),
     COHERE_API_KEY: z.string().min(1).optional(),
@@ -125,6 +130,22 @@ const envSchema = z
         });
       }
     }
+    if (config.LLM_PROVIDER === "openai-codex-subscription") {
+      if (!isAbsolute(config.CODEX_HOME)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["CODEX_HOME"],
+          message: "CODEX_HOME must be an absolute dedicated path when LLM_PROVIDER=openai-codex-subscription"
+        });
+      }
+      if (!isAbsolute(config.OPENAI_CODEX_WORKDIR)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["OPENAI_CODEX_WORKDIR"],
+          message: "OPENAI_CODEX_WORKDIR must be absolute when LLM_PROVIDER=openai-codex-subscription"
+        });
+      }
+    }
   });
 
 /** Runtime application configuration loaded from environment variables. */
@@ -150,6 +171,8 @@ export function loadConfig(): AppConfig {
     OPENAI_CODEX_RELAY_KEY: provider === "openai-codex"
       ? resolveCodexRelayKey()
       : process.env.OPENAI_CODEX_RELAY_KEY?.trim() || undefined,
+    CODEX_HOME: process.env.CODEX_HOME?.trim() || undefined,
+    OPENAI_CODEX_WORKDIR: process.env.OPENAI_CODEX_WORKDIR?.trim() || undefined,
     LLM_REQUEST_TIMEOUT_MS: process.env.LLM_REQUEST_TIMEOUT_MS,
     LLM_REASONING_EFFORT: process.env.LLM_REASONING_EFFORT,
     COHERE_API_KEY: process.env.COHERE_API_KEY,

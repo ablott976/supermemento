@@ -58,6 +58,33 @@ describe("LLM environment configuration", () => {
     assert.equal(config.OPENAI_CODEX_MODEL, "gpt-5.6-luna");
   });
 
+  it("accepts a dedicated Codex subscription home without relay or Anthropic", () => {
+    baseEnvironment();
+    process.env.LLM_PROVIDER = "openai-codex-subscription";
+    process.env.CODEX_HOME = "/data/supermemento-codex";
+    process.env.OPENAI_CODEX_WORKDIR = "/app";
+    process.env.OPENAI_CODEX_RELAY_KEY_FILE = "/does/not/exist";
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_CODEX_BASE_URL;
+    delete process.env.OPENAI_CODEX_RELAY_KEY;
+
+    const config = loadConfig();
+
+    assert.equal(config.LLM_PROVIDER, "openai-codex-subscription");
+    assert.equal(config.CODEX_HOME, "/data/supermemento-codex");
+    assert.equal(config.OPENAI_CODEX_WORKDIR, "/app");
+    assert.equal(config.OPENAI_CODEX_RELAY_KEY, undefined);
+  });
+
+  it("requires absolute Codex subscription runtime paths", () => {
+    baseEnvironment();
+    process.env.LLM_PROVIDER = "openai-codex-subscription";
+    process.env.CODEX_HOME = "relative/codex";
+    process.env.OPENAI_CODEX_WORKDIR = "relative/app";
+
+    assert.throws(() => loadConfig(), /CODEX_HOME must be an absolute dedicated path/);
+  });
+
   it("accepts an internal Docker service DNS name", () => {
     baseEnvironment();
     process.env.LLM_PROVIDER = "openai-codex";

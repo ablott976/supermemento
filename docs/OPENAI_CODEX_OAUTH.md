@@ -1,4 +1,6 @@
-# OpenAI Codex OAuth for Supermemento
+# Legacy OpenAI Codex OAuth relay for Supermemento
+
+This Hermes-backed route is retained temporarily for rollback. New deployments should use `LLM_PROVIDER=openai-codex-subscription` as described in [OPENAI_CODEX_SUBSCRIPTION.md](OPENAI_CODEX_SUBSCRIPTION.md).
 
 ## Architecture
 

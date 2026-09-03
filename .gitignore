@@ -11,3 +11,5 @@ venv/
 .DS_Store
 coverage/
 .nyc_output/
+.codex/
+.supermemento-codex/

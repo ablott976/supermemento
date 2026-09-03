@@ -31,10 +31,10 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 ## Configuration
 
 - **Container Configuration**: Allows setting and retrieving container-level settings, such as filter prompts, to customize ingestion pipelines. This is managed via dedicated API endpoints.
-- **Text generation**: `LLM_PROVIDER=anthropic` keeps the existing API-key path. `LLM_PROVIDER=openai-codex` uses a private authenticated relay and `gpt-5.6-luna`; OAuth credentials remain outside the Supermemento container.
+- **Text generation**: `LLM_PROVIDER=openai-codex-subscription` uses the official Codex SDK and a dedicated persistent `CODEX_HOME` authenticated with ChatGPT. `anthropic` and the legacy Hermes-backed `openai-codex` relay remain available for explicit rollback.
 - **Embeddings**: Continue to use the OpenAI embedding configuration independently of the text-generation provider.
 
-See [OpenAI Codex OAuth deployment](docs/OPENAI_CODEX_OAUTH.md) for the relay trust boundary, installation and rollback procedure.
+See [Codex subscription deployment](docs/OPENAI_CODEX_SUBSCRIPTION.md) for authentication, validation and rollback. The former [relay deployment](docs/OPENAI_CODEX_OAUTH.md) remains documented only as a temporary rollback route.
 
 ## Key Advantages over SaaS alternatives
 

@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { Codex } from "@openai/codex-sdk";
+import { chmodSync, mkdirSync } from "node:fs";
 import OpenAI from "openai";
 
 import type { AppConfig } from "../../config.js";
@@ -11,7 +13,7 @@ export interface TextGenerationRequest {
 }
 
 export interface TextGenerationClient {
-  readonly provider: "anthropic" | "openai-codex";
+  readonly provider: "anthropic" | "openai-codex" | "openai-codex-subscription";
   complete(request: TextGenerationRequest): Promise<string>;
 }
 
@@ -26,6 +28,21 @@ type AnthropicLike = {
 type OpenAiResponsesLike = {
   responses: {
     create(request: Record<string, unknown>): Promise<AsyncIterable<Record<string, unknown>>>;
+  };
+};
+
+type CodexSdkLike = {
+  startThread(options: {
+    model: string;
+    modelReasoningEffort: AppConfig["LLM_REASONING_EFFORT"];
+    sandboxMode: "read-only";
+    workingDirectory: string;
+    skipGitRepoCheck: true;
+    networkAccessEnabled: false;
+    webSearchMode: "disabled";
+    approvalPolicy: "never";
+  }): {
+    run(input: string, options: { signal: AbortSignal }): Promise<{ finalResponse: string }>;
   };
 };
 
@@ -45,7 +62,42 @@ function providerError(provider: string, phase: string, error: unknown): Error {
   if (status !== undefined) {
     Object.assign(wrapped, { status });
   }
+  const failureType = failureTypeFromError(error);
+  if (failureType) {
+    Object.assign(wrapped, { failureType });
+  }
   return wrapped;
+}
+
+function failureTypeFromError(
+  error: unknown
+): "auth" | "rate_limit" | "server" | "timeout" | undefined {
+  const status = statusFromError(error);
+  if (status === 401 || status === 403) return "auth";
+  if (status === 429) return "rate_limit";
+  if (status !== undefined && status >= 500) return "server";
+
+  const candidate = error as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const code = typeof candidate?.code === "string" ? candidate.code.toLowerCase() : "";
+  const name = typeof candidate?.name === "string" ? candidate.name.toLowerCase() : "";
+  const message = typeof candidate?.message === "string" ? candidate.message.toLowerCase() : "";
+  if (
+    name === "aborterror" ||
+    ["etimedout", "esockettimedout"].includes(code) ||
+    /timed?\s*out|timeout/.test(message)
+  ) {
+    return "timeout";
+  }
+  if (/rate.?limit|usage limit|quota|too many requests|\b429\b/.test(message)) {
+    return "rate_limit";
+  }
+  if (/unauthori[sz]ed|forbidden|auth(?:entication)? failed|not logged in|login required|\b40[13]\b/.test(message)) {
+    return "auth";
+  }
+  if (/server error|service unavailable|bad gateway|gateway timeout|http 5\d\d|\b5\d\d\b/.test(message)) {
+    return "server";
+  }
+  return undefined;
 }
 
 function isRetryableCodexError(error: unknown): boolean {
@@ -251,7 +303,126 @@ export class OpenAiCodexTextGenerationClient implements TextGenerationClient {
   }
 }
 
+const CODEX_SUBSCRIPTION_PROVIDER = "openai-codex-subscription" as const;
+
+/** @internal Builds the minimal child-process environment for the Codex subscription runtime. */
+export function buildCodexSubscriptionEnvironment(config: AppConfig): Record<string, string> {
+  const allowedNames = [
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "TMPDIR",
+    "SSL_CERT_FILE",
+    "NODE_EXTRA_CA_CERTS",
+    "CODEX_CA_CERTIFICATE",
+    "CODEX_CI",
+    "CODEX_EXEC_SERVER_REMOTE_BASE_URL",
+    "CODEX_NETWORK_ALLOW_LOCAL_BINDING",
+    "CODEX_NETWORK_PROXY_ACTIVE",
+    "CODEX_PROXY_CERT",
+    "CODEX_SANDBOX_NETWORK_DISABLED",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy"
+  ];
+  const environment: Record<string, string> = { CODEX_HOME: config.CODEX_HOME };
+  for (const name of allowedNames) {
+    const value = process.env[name];
+    if (value) environment[name] = value;
+  }
+  return environment;
+}
+
+function codexPrompt(request: TextGenerationRequest): string {
+  return [
+    "Complete this text-generation request without using tools or reading files.",
+    `Keep the final answer within approximately ${request.maxTokens} tokens.`,
+    "",
+    "Instructions:",
+    request.system,
+    "",
+    "Input:",
+    request.user
+  ].join("\n");
+}
+
+/** Text generation through the official Codex runtime and a ChatGPT subscription session. */
+export class OpenAiCodexSubscriptionTextGenerationClient implements TextGenerationClient {
+  public readonly provider = CODEX_SUBSCRIPTION_PROVIDER;
+  private readonly model: string;
+  private readonly reasoningEffort: AppConfig["LLM_REASONING_EFFORT"];
+  private readonly timeoutMs: number;
+  private readonly workingDirectory: string;
+  private readonly client: CodexSdkLike;
+
+  public constructor(config: AppConfig, client?: CodexSdkLike) {
+    this.model = config.OPENAI_CODEX_MODEL;
+    this.reasoningEffort = config.LLM_REASONING_EFFORT;
+    this.timeoutMs = config.LLM_REQUEST_TIMEOUT_MS;
+    this.workingDirectory = config.OPENAI_CODEX_WORKDIR;
+
+    mkdirSync(config.CODEX_HOME, { recursive: true, mode: 0o700 });
+    chmodSync(config.CODEX_HOME, 0o700);
+    this.client = client ?? (new Codex({
+      env: buildCodexSubscriptionEnvironment(config),
+      config: {
+        forced_login_method: "chatgpt",
+        cli_auth_credentials_store: "file"
+      }
+    }) as CodexSdkLike);
+  }
+
+  public async complete(request: TextGenerationRequest): Promise<string> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const thread = this.client.startThread({
+        model: this.model,
+        modelReasoningEffort: this.reasoningEffort,
+        sandboxMode: "read-only",
+        workingDirectory: this.workingDirectory,
+        skipGitRepoCheck: true,
+        networkAccessEnabled: false,
+        webSearchMode: "disabled",
+        approvalPolicy: "never"
+      });
+      const result = await thread.run(codexPrompt(request), { signal: controller.signal });
+      const text = result.finalResponse.trim();
+      if (!text) {
+        throw new Error("openai-codex-subscription returned no text");
+      }
+      const maxCharacters = Math.max(1024, request.maxTokens * 8);
+      if (text.length > maxCharacters) {
+        throw new Error("Codex subscription response exceeded the configured output limit");
+      }
+      return text;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === "openai-codex-subscription returned no text" ||
+          error.message === "Codex subscription response exceeded the configured output limit")
+      ) {
+        throw error;
+      }
+      throw providerError(CODEX_SUBSCRIPTION_PROVIDER, "request", error);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 export function createTextGenerationClient(config: AppConfig): TextGenerationClient {
+  if (config.LLM_PROVIDER === "openai-codex-subscription") {
+    return new ObservedTextGenerationClient(
+      new OpenAiCodexSubscriptionTextGenerationClient(config),
+      config.OPENAI_CODEX_MODEL
+    );
+  }
   if (config.LLM_PROVIDER === "openai-codex") {
     return new ObservedTextGenerationClient(
       new OpenAiCodexTextGenerationClient(config),

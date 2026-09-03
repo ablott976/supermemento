@@ -26,6 +26,10 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-supermemento}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CODEX_HOME: ${CODEX_HOME:-/data/supermemento-codex}
+      OPENAI_CODEX_WORKDIR: ${OPENAI_CODEX_WORKDIR:-/app}
+    volumes:
+      - codex_home:/data/supermemento-codex
     depends_on:
       - neo4j
     stdin_open: true
@@ -33,3 +37,4 @@ services:
 
 volumes:
   neo4j_data:
+  codex_home:
