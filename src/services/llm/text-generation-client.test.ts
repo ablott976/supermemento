@@ -5,7 +5,9 @@ import type { AppConfig } from "../../config.js";
 import {
   AnthropicTextGenerationClient,
   ObservedTextGenerationClient,
+  OpenAiCodexSubscriptionTextGenerationClient,
   OpenAiCodexTextGenerationClient,
+  buildCodexSubscriptionEnvironment,
   createTextGenerationClient
 } from "./text-generation-client.js";
 
@@ -22,6 +24,8 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     OPENAI_CODEX_MODEL: "gpt-5.6-luna",
     OPENAI_CODEX_BASE_URL: undefined,
     OPENAI_CODEX_RELAY_KEY: undefined,
+    CODEX_HOME: "/tmp/supermemento-codex-tests",
+    OPENAI_CODEX_WORKDIR: "/app",
     LLM_REQUEST_TIMEOUT_MS: 120000,
     LLM_REASONING_EFFORT: "low",
     COHERE_API_KEY: undefined,
@@ -320,6 +324,108 @@ describe("text generation providers", () => {
       () => createTextGenerationClient(config({ LLM_PROVIDER: "openai-codex" })),
       /OPENAI_CODEX_BASE_URL/
     );
+  });
+
+  it("uses the official Codex SDK with a locked-down local thread", async () => {
+    let threadOptions: Record<string, unknown> | undefined;
+    let prompt: string | undefined;
+    const client = new OpenAiCodexSubscriptionTextGenerationClient(
+      config({ LLM_PROVIDER: "openai-codex-subscription" }),
+      {
+        startThread: (options) => {
+          threadOptions = options;
+          return {
+            run: async (input) => {
+              prompt = input;
+              return { finalResponse: "expanded query" };
+            }
+          };
+        }
+      }
+    );
+
+    const result = await client.complete({
+      operation: "query-rewrite",
+      system: "Expand the query",
+      user: "reloj fichaje",
+      maxTokens: 300
+    });
+
+    assert.equal(result, "expanded query");
+    assert.deepEqual(threadOptions, {
+      model: "gpt-5.6-luna",
+      modelReasoningEffort: "low",
+      sandboxMode: "read-only",
+      workingDirectory: "/app",
+      skipGitRepoCheck: true,
+      networkAccessEnabled: false,
+      webSearchMode: "disabled",
+      approvalPolicy: "never"
+    });
+    assert.match(prompt ?? "", /Expand the query/);
+    assert.match(prompt ?? "", /reloj fichaje/);
+  });
+
+  it("does not pass embedding or relay credentials to the Codex child process", () => {
+    const originalEmbeddingKey = process.env.OPENAI_API_KEY;
+    const originalRelayKey = process.env.OPENAI_CODEX_RELAY_KEY;
+    const originalRelayUrl = process.env.OPENAI_CODEX_BASE_URL;
+    try {
+      process.env.OPENAI_API_KEY = "embedding-secret";
+      process.env.OPENAI_CODEX_RELAY_KEY = "relay-secret";
+      process.env.OPENAI_CODEX_BASE_URL = "http://codex-oauth-bridge:18646/v1";
+      const environment = buildCodexSubscriptionEnvironment(
+        config({ LLM_PROVIDER: "openai-codex-subscription" })
+      );
+
+      assert.equal(environment.CODEX_HOME, "/tmp/supermemento-codex-tests");
+      assert.equal(environment.OPENAI_API_KEY, undefined);
+      assert.equal(environment.OPENAI_CODEX_RELAY_KEY, undefined);
+      assert.equal(environment.OPENAI_CODEX_BASE_URL, undefined);
+      assert.equal(environment.CODEX_API_KEY, undefined);
+    } finally {
+      if (originalEmbeddingKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = originalEmbeddingKey;
+      if (originalRelayKey === undefined) delete process.env.OPENAI_CODEX_RELAY_KEY;
+      else process.env.OPENAI_CODEX_RELAY_KEY = originalRelayKey;
+      if (originalRelayUrl === undefined) delete process.env.OPENAI_CODEX_BASE_URL;
+      else process.env.OPENAI_CODEX_BASE_URL = originalRelayUrl;
+    }
+  });
+
+  it("sanitizes Codex subscription auth failures", async () => {
+    const client = new OpenAiCodexSubscriptionTextGenerationClient(
+      config({ LLM_PROVIDER: "openai-codex-subscription" }),
+      {
+        startThread: () => ({
+          run: async () => {
+            throw Object.assign(new Error("sensitive OAuth response"), { status: 401 });
+          }
+        })
+      }
+    );
+
+    await assert.rejects(
+      client.complete({ operation: "query-rewrite", system: "s", user: "u", maxTokens: 30 }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /openai-codex-subscription request failed \(HTTP 401\)/);
+        assert.doesNotMatch(error.message, /sensitive/);
+        assert.equal((error as Error & { failureType?: string }).failureType, "auth");
+        return true;
+      }
+    );
+  });
+
+  it("selects the subscription provider without relay configuration", () => {
+    const client = createTextGenerationClient(
+      config({
+        LLM_PROVIDER: "openai-codex-subscription",
+        OPENAI_CODEX_BASE_URL: undefined,
+        OPENAI_CODEX_RELAY_KEY: undefined
+      })
+    );
+    assert.equal(client.provider, "openai-codex-subscription");
   });
 
   it("logs safe provider metrics without request or error content", async () => {

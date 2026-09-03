@@ -19,11 +19,12 @@ export class SearchService {
   public constructor(
     config: AppConfig,
     neo4jClient: Neo4jClient,
-    embeddingService: EmbeddingService
+    embeddingService: EmbeddingService,
+    queryRewriter?: QueryRewriterService
   ) {
     this.neo4jClient = neo4jClient;
     this.embeddingService = embeddingService;
-    this.queryRewriter = new QueryRewriterService(config);
+    this.queryRewriter = queryRewriter ?? new QueryRewriterService(config);
     this.fallbackReranker = new SimpleReranker();
     this.defaultReranker = config.COHERE_API_KEY
       ? new CohereReranker(config)
