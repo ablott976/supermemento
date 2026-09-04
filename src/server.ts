@@ -26,11 +26,11 @@ import { WebCrawlerConnector } from "./services/connectors/web-crawler.js";
 import { ContentType, DocumentStatus, MemoryType } from "./types/index.js";
 
 /** Accept both "YYYY-MM-DD" and full ISO datetime, normalising date-only to midnight UTC */
-const flexibleDatetime = z.string().optional().transform((v) => {
+const flexibleDatetime = z.string().transform((v) => {
   if (!v) return v;
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
   return v;
-}).pipe(z.string().datetime().optional());
+}).pipe(z.string().datetime()).optional();
 
 const createMemoryArgsSchema = z.object({
   content: z.string().min(1),
@@ -41,6 +41,8 @@ const createMemoryArgsSchema = z.object({
   validFrom: flexibleDatetime,
   validTo: flexibleDatetime
 });
+
+export const createMemoryInputSchema = zodToJsonSchema(createMemoryArgsSchema);
 
 const batchMemoryItemSchema = z.object({
   content: z.string().min(1),
@@ -534,8 +536,9 @@ export class SupermementoServer {
           name: "create_memory",
           description:
             "Create a SINGLE Memory node. For 2+ memories use batch_create_memories instead — it is much faster. " +
-            "sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag.",
-          inputSchema: zodToJsonSchema(createMemoryArgsSchema)
+            "sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag. " +
+            "validFrom and validTo are optional and accept YYYY-MM-DD or an ISO datetime.",
+          inputSchema: createMemoryInputSchema
         },
         {
           name: "batch_create_memories",
