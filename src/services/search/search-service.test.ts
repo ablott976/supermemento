@@ -9,6 +9,27 @@ import { QueryRewriterService } from "./query-rewriter.js";
 import { SearchService } from "./search-service.js";
 
 describe("SearchService query rewrite fallback", () => {
+  it("includes memory metadata in memory and hybrid search results", async () => {
+    const metadata = { messageId: "mail-123", nested: { tags: ["pmm"] } };
+    const neo4jClient = {
+      semanticSearchMemoriesAdvanced: async () => [
+        { memory: { id: "new", content: "New fact", metadata }, score: 0.95 },
+        { memory: { id: "legacy", content: "Legacy fact" }, score: 0.9 }
+      ],
+      semanticSearchChunks: async () => []
+    } as unknown as Neo4jClient;
+    const embeddingService = {
+      generateEmbedding: async () => [0.1, 0.2]
+    } as unknown as EmbeddingService;
+    const queryRewriter = { rewrite: async (query: string) => query } as QueryRewriterService;
+    const service = new SearchService({} as AppConfig, neo4jClient, embeddingService, queryRewriter);
+    for (const searchMode of ["memory", "hybrid"] as const) {
+      const response = await service.search({ query: "fact", searchMode });
+      assert.deepEqual(response.results.find((item) => item.id === "new")?.metadata, metadata);
+      assert.deepEqual(response.results.find((item) => item.id === "legacy")?.metadata, {});
+    }
+  });
+
   it("continues semantic search with the original query after a rewrite 429", async () => {
     let embeddedText: string | undefined;
     const llm: TextGenerationClient = {
