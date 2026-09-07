@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import type { AppConfig } from "../config.js";
 import { Neo4jClient } from "./neo4j-client.js";
-import { RelationType } from "../types/enums.js";
+import { MemoryType, RelationType } from "../types/enums.js";
 
 const config = {
   NEO4J_URI: "bolt://127.0.0.1:7687",
@@ -55,6 +55,81 @@ function memoryRecord(id: string, score: number, content = "Historical fact") {
       }
   };
 }
+
+describe("Memory metadata persistence", () => {
+  const metadata = { source: "gmail", messageId: "mail-123", nested: { tags: ["pmm"], processed: true, value: null } };
+  const input = {
+    content: "Metadata regression test",
+    memoryType: MemoryType.Fact,
+    containerTag: "test",
+    confidence: 0.9,
+    embedding: [0.1, 0.2],
+    sourceDocId: "document-1"
+  };
+  const record = (stored: unknown) => ({
+    get: () => ({ properties: { ...input, id: "memory-1", createdAt: "2026-01-01T00:00:00Z", metadata: stored } })
+  });
+
+  it("serializes nested metadata for Neo4j and returns an object", async () => {
+    const client = clientWithSession({
+      run: async (query, params) => {
+        assert.match(query, /metadata: \$metadata/);
+        assert.equal(params.metadata, JSON.stringify(metadata));
+        return { records: [record(params.metadata)] };
+      },
+      close: async () => undefined
+    });
+    assert.deepEqual((await client.createMemory({ ...input, metadata })).metadata, metadata);
+  });
+
+  it("defaults new memories without metadata to an empty object", async () => {
+    const client = clientWithSession({
+      run: async (_query, params) => {
+        assert.equal(params.metadata, "{}");
+        return { records: [record(params.metadata)] };
+      },
+      close: async () => undefined
+    });
+    assert.deepEqual((await client.createMemory(input)).metadata, {});
+  });
+
+  it("preserves independent metadata on each batch item", async () => {
+    const client = clientWithSession({
+      run: async (query, params) => {
+        assert.match(query, /metadata: row.metadata/);
+        const rows = params.rows as { metadata: string }[];
+        assert.deepEqual(rows.map((row) => row.metadata), [JSON.stringify(metadata), "{}"]);
+        return { records: rows.map((row) => record(row.metadata)) };
+      },
+      close: async () => undefined
+    });
+    assert.deepEqual((await client.batchCreateMemories([{ ...input, metadata }, input])).map((m) => m.metadata), [metadata, {}]);
+  });
+
+  it("replaces, preserves, and clears metadata on update", async () => {
+    let stored = JSON.stringify({ original: true });
+    const client = clientWithSession({
+      run: async (query, params) => {
+        assert.match(query, /m.metadata = COALESCE\(\$metadata, m.metadata\)/);
+        assert.ok(params.metadata === null || typeof params.metadata === "string");
+        stored = params.metadata as string | null ?? stored;
+        return { records: [record(stored)] };
+      },
+      close: async () => undefined
+    });
+    assert.deepEqual((await client.updateMemory("memory-1", { metadata }))?.metadata, metadata);
+    assert.deepEqual((await client.updateMemory("memory-1", { confidence: 0.8 }))?.metadata, metadata);
+    assert.deepEqual((await client.updateMemory("memory-1", { metadata: {} }))?.metadata, {});
+  });
+
+  it("reads legacy memories without metadata without a migration", async () => {
+    const client = clientWithSession({
+      run: async () => ({ records: [record(undefined)] }),
+      close: async () => undefined
+    });
+    assert.deepEqual((await client.listMemories({}))[0]?.metadata, {});
+  });
+});
 
 describe("Neo4jClient repair relation idempotency", () => {
   it("expands historical vector search past newer filtered candidates", async () => {

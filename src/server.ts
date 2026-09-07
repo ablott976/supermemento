@@ -37,6 +37,7 @@ const createMemoryArgsSchema = z.object({
   memoryType: z.nativeEnum(MemoryType),
   containerTag: z.string().min(1),
   sourceDocId: z.string().uuid().optional(),
+  metadata: z.record(z.unknown()).optional(),
   confidence: z.number().min(0).max(1).default(0.9),
   validFrom: flexibleDatetime,
   validTo: flexibleDatetime
@@ -46,6 +47,7 @@ export const createMemoryInputSchema = zodToJsonSchema(createMemoryArgsSchema);
 
 const batchMemoryItemSchema = z.object({
   content: z.string().min(1),
+  metadata: z.record(z.unknown()).optional(),
   memoryType: z.nativeEnum(MemoryType),
   confidence: z.number().min(0).max(1).default(0.9),
   validFrom: flexibleDatetime,
@@ -57,6 +59,8 @@ const batchCreateMemoriesArgsSchema = z.object({
   containerTag: z.string().min(1),
   sourceDocId: z.string().uuid().optional()
 });
+
+export const batchCreateMemoriesInputSchema = zodToJsonSchema(batchCreateMemoriesArgsSchema);
 
 const semanticSearchArgsSchema = z.object({
   query: z.string().min(1),
@@ -142,6 +146,7 @@ const deleteMemoryArgsSchema = z.object({
 
 const updateMemoryArgsSchema = z.object({
   memoryId: z.string().uuid(),
+  metadata: z.record(z.unknown()).optional(),
   content: z.string().min(1).optional(),
   memoryType: z.nativeEnum(MemoryType).optional(),
   isLatest: z.boolean().optional(),
@@ -158,6 +163,8 @@ const updateMemoryArgsSchema = z.object({
   }),
   forgottenAt: z.string().nullable().optional()
 });
+
+export const updateMemoryInputSchema = zodToJsonSchema(updateMemoryArgsSchema);
 
 const getMemoryRelationsArgsSchema = z.object({
   memoryId: z.string().uuid()
@@ -537,6 +544,7 @@ export class SupermementoServer {
           description:
             "Create a SINGLE Memory node. For 2+ memories use batch_create_memories instead — it is much faster. " +
             "sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag. " +
+            "metadata is an optional JSON object stored on the memory. " +
             "validFrom and validTo are optional and accept YYYY-MM-DD or an ISO datetime.",
           inputSchema: createMemoryInputSchema
         },
@@ -547,8 +555,8 @@ export class SupermementoServer {
             "All memories share the same containerTag. Relation classification runs async in the background. " +
             "Use this whenever the user wants to save multiple facts, preferences, or episodes. " +
             "Each memory item has: content (required), memoryType (fact|preference|episode|derived), " +
-            "confidence (default 0.9), validFrom (optional), validTo (optional).",
-          inputSchema: zodToJsonSchema(batchCreateMemoriesArgsSchema)
+            "confidence (default 0.9), metadata (optional JSON object), validFrom (optional), validTo (optional).",
+          inputSchema: batchCreateMemoriesInputSchema
         },
         {
           name: "semantic_search",
@@ -607,8 +615,8 @@ export class SupermementoServer {
         },
         {
           name: "update_memory",
-          description: "Update mutable fields on a memory by ID",
-          inputSchema: zodToJsonSchema(updateMemoryArgsSchema)
+          description: "Update mutable fields on a memory by ID. metadata replaces the entire object; omit to preserve it or pass {} to clear it.",
+          inputSchema: updateMemoryInputSchema
         },
         {
           name: "get_memory_relations",
@@ -699,6 +707,7 @@ export class SupermementoServer {
             }
             const embedding = await this.embeddingService.generateEmbedding(input.content);
             const memory = await this.neo4jClient.createMemory({
+              metadata: input.metadata,
               content: input.content,
               memoryType: input.memoryType,
               containerTag: input.containerTag,
@@ -749,6 +758,7 @@ export class SupermementoServer {
 
             // 3. Batch create memories — 1 Neo4j UNWIND transaction
             const memoryInputs = input.memories.map((m, i) => ({
+              metadata: m.metadata,
               content: m.content,
               memoryType: m.memoryType,
               containerTag: input.containerTag,
@@ -909,6 +919,7 @@ export class SupermementoServer {
           case "update_memory": {
             const input = updateMemoryArgsSchema.parse(args);
             const memory = await this.neo4jClient.updateMemory(input.memoryId, {
+              metadata: input.metadata,
               content: input.content,
               memoryType: input.memoryType,
               isLatest: input.isLatest,

@@ -30,6 +30,19 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ## Configuration
 
+### Memory metadata
+
+`create_memory` accepts an optional `metadata` JSON object. `batch_create_memories`
+accepts it on each memory item. Nested objects, arrays, and JSON scalar values
+are stored as JSON on the Neo4j Memory node and returned as an object when read,
+listed, or searched. Existing memories without metadata return `{}`.
+
+`update_memory` replaces the metadata object when supplied. Omit `metadata` to
+preserve it, or pass `{}` to clear it. Document metadata remains independent.
+
+After deployment, refresh the connector's MCP tool definitions so clients can
+discover the new optional parameter.
+
 - **Container Configuration**: Allows setting and retrieving container-level settings, such as filter prompts, to customize ingestion pipelines. This is managed via dedicated API endpoints.
 - **Text generation**: `LLM_PROVIDER=openai-codex-subscription` uses the official Codex SDK and a dedicated persistent `CODEX_HOME` authenticated with ChatGPT. `anthropic` and the legacy Hermes-backed `openai-codex` relay remain available for explicit rollback.
 - **Embeddings**: Continue to use the OpenAI embedding configuration independently of the text-generation provider.
