@@ -31,6 +31,7 @@ type DocumentUpdateInput = {
 };
 
 type MemoryCreateInput = {
+  metadata?: Metadata;
   content: string;
   memoryType: MemoryType;
   containerTag: string;
@@ -42,6 +43,7 @@ type MemoryCreateInput = {
 };
 
 type MemoryUpdateInput = {
+  metadata?: Metadata;
   content?: string;
   memoryType?: MemoryType;
   isLatest?: boolean;
@@ -432,6 +434,7 @@ export class Neo4jClient {
         MATCH (d:Document {id: $sourceDocId})
         CREATE (m:Memory {
           id: $id,
+          metadata: $metadata,
           content: $content,
           memoryType: $memoryType,
           containerTag: $containerTag,
@@ -452,6 +455,7 @@ export class Neo4jClient {
           id,
           content: input.content,
           memoryType: input.memoryType,
+          metadata: JSON.stringify(input.metadata ?? {}),
           containerTag: input.containerTag,
           confidence: input.confidence,
           embedding: input.embedding,
@@ -485,6 +489,7 @@ export class Neo4jClient {
     const now = new Date().toISOString();
     const rows = inputs.map((input) => ({
       id: uuidv4(),
+      metadata: JSON.stringify(input.metadata ?? {}),
       content: input.content,
       memoryType: input.memoryType,
       containerTag: input.containerTag,
@@ -504,6 +509,7 @@ export class Neo4jClient {
         MATCH (d:Document {id: row.sourceDocId})
         CREATE (m:Memory {
           id: row.id,
+          metadata: row.metadata,
           content: row.content,
           memoryType: row.memoryType,
           containerTag: row.containerTag,
@@ -663,6 +669,7 @@ export class Neo4jClient {
         `
         MATCH (m:Memory {id: $id})
         SET m.content = COALESCE($content, m.content),
+            m.metadata = COALESCE($metadata, m.metadata),
             m.memoryType = COALESCE($memoryType, m.memoryType),
             m.isLatest = CASE WHEN $isLatest IS NULL THEN m.isLatest ELSE $isLatest END,
             m.confidence = CASE WHEN $confidence IS NULL THEN m.confidence ELSE $confidence END,
@@ -674,6 +681,7 @@ export class Neo4jClient {
         {
           id: memoryId,
           content: input.content ?? null,
+          metadata: input.metadata === undefined ? null : JSON.stringify(input.metadata),
           memoryType: input.memoryType ?? null,
           isLatest: typeof input.isLatest === "boolean" ? input.isLatest : null,
           confidence: typeof input.confidence === "number" ? input.confidence : null,
@@ -1506,6 +1514,9 @@ export class Neo4jClient {
     const props = this.nodeProps(nodeValue);
     return {
       id: String(props.id),
+      metadata: typeof props.metadata === "string"
+        ? JSON.parse(props.metadata) as Metadata
+        : (props.metadata as Metadata) ?? {},
       content: String(props.content),
       memoryType: props.memoryType as MemoryType,
       containerTag: String(props.containerTag),

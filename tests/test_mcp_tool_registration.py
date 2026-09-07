@@ -46,7 +46,7 @@ def test_server_lists_registered_document_and_memory_tools() -> None:
         ),
         (
             'name: "update_memory"',
-            "inputSchema: zodToJsonSchema(updateMemoryArgsSchema)",
+            "inputSchema: updateMemoryInputSchema",
         ),
         (
             'name: "reinforce_preference"',

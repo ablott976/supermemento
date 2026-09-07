@@ -21,6 +21,7 @@ export interface Document {
 /** :Memory node schema in Neo4j. */
 export interface Memory {
   id: string;
+  metadata?: Metadata;
   content: string;
   memoryType: MemoryType;
   containerTag: string;
