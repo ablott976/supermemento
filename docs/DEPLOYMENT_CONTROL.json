@@ -1,0 +1,19 @@
+{
+  "domain": "shared",
+  "domain_members": ["ancora", "zkteco"],
+  "control_host": "linux.ancoraautomations.es",
+  "control_user": "ablott",
+  "mechanism": "manual",
+  "manual_only": true,
+  "authorized_entrypoint": "Linux: ssh vps, targeted docker service update for Supermemento services",
+  "ledger": null,
+  "runtime": {
+    "host": "vps",
+    "platform": "Docker Swarm / EasyPanel",
+    "services": ["n8n_supermemento", "n8n_supermemento-chatgpt"]
+  },
+  "status": "verified",
+  "verified_scope": "Manual Linux-to-VPS service update; not automated reconciliation or EasyPanel desired-state synchronization",
+  "owner_approved_at": "2026-09-08",
+  "verification_runbook": "docs/STATE.md"
+}
