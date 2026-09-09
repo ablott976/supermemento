@@ -1,5 +1,6 @@
 import type { Document } from "../../../types/models.js";
 import type { Extractor } from "./base.js";
+import { fetchPublicUrl } from "./public-url.js";
 
 /** Extractor for URL documents using fetch + basic HTML-to-text cleanup. */
 export class UrlExtractor implements Extractor {
@@ -13,17 +14,7 @@ export class UrlExtractor implements Extractor {
       throw new Error("URL extractor requires sourceUrl or rawContent containing a URL");
     }
 
-    const response = await fetch(url, {
-      headers: {
-        "user-agent": "Supermemento/2.0 (+https://supermemento.local)"
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL (${response.status}): ${url}`);
-    }
-
-    const html = await response.text();
+    const html = (await fetchPublicUrl(url)).toString("utf8");
     return this.htmlToText(html);
   }
 

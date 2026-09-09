@@ -40,6 +40,7 @@ class ToolPolicy:
     read_only: bool
     idempotent: bool
     open_world: bool = False
+    destructive: bool = False
 
 
 TOOL_POLICIES: dict[str, ToolPolicy] = {
@@ -52,6 +53,15 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "get_user_profile": ToolPolicy(read_only=True, idempotent=True),
     "get_memory_relations": ToolPolicy(read_only=True, idempotent=True),
     "list_crawled_urls": ToolPolicy(read_only=True, idempotent=True),
+    "batch_create_memories": ToolPolicy(read_only=False, idempotent=False),
+    "update_memory": ToolPolicy(read_only=False, idempotent=True, destructive=True),
+    "forget_memory": ToolPolicy(read_only=False, idempotent=False, destructive=True),
+    "delete_memory": ToolPolicy(read_only=False, idempotent=True, destructive=True),
+    "create_memory_relation": ToolPolicy(read_only=False, idempotent=True, destructive=True),
+    "ingest_document": ToolPolicy(read_only=False, idempotent=False, open_world=True),
+    "ingest_url": ToolPolicy(read_only=False, idempotent=False, open_world=True),
+    "crawl_url": ToolPolicy(read_only=False, idempotent=False, open_world=True),
+    "crawl_urls": ToolPolicy(read_only=False, idempotent=False, open_world=True),
 }
 
 ALLOWED_TOOLS = frozenset(TOOL_POLICIES)
@@ -84,7 +94,7 @@ class ChatGPTAnnotations(Transform):
             return tool
         annotations = ToolAnnotations(
             readOnlyHint=policy.read_only,
-            destructiveHint=False,
+            destructiveHint=policy.destructive,
             idempotentHint=policy.idempotent,
             openWorldHint=policy.open_world,
         )

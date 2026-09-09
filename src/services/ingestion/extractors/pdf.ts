@@ -2,13 +2,10 @@ import { readFile } from "node:fs/promises";
 
 import type { Document } from "../../../types/models.js";
 import type { Extractor } from "./base.js";
+import { fetchPublicUrl } from "./public-url.js";
 
 type PdfParseResult = {
   text?: string;
-};
-
-type PdfParseModule = {
-  default?: (dataBuffer: Buffer) => Promise<PdfParseResult>;
 };
 
 /** Extractor for PDF documents. */
@@ -39,6 +36,12 @@ export class PdfExtractor implements Extractor {
       throw new Error("PDF extractor requires document.filePath or rawContent");
     }
 
+    if (/^https?:\/\//i.test(doc.rawContent.trim())) {
+      const buffer = await fetchPublicUrl(doc.rawContent.trim());
+      if (!this.looksLikePdf(buffer)) throw new Error("URL did not return PDF bytes");
+      return buffer;
+    }
+
     const fromBase64 = Buffer.from(doc.rawContent, "base64");
     if (this.looksLikePdf(fromBase64)) {
       return fromBase64;
@@ -58,15 +61,15 @@ export class PdfExtractor implements Extractor {
 
   private async loadPdfParser(): Promise<(dataBuffer: Buffer) => Promise<PdfParseResult>> {
     try {
-      // @ts-ignore - optional dependency, loaded dynamically
-      const mod = (await import("pdf-parse")) as PdfParseModule;
-      const parse = mod.default;
-
-      if (!parse) {
-        throw new Error("pdf-parse default export is unavailable");
-      }
-
-      return parse;
+      const { PDFParse } = await import("pdf-parse");
+      return async (buffer: Buffer) => {
+        const parser = new PDFParse({ data: new Uint8Array(buffer), isEvalSupported: false });
+        try {
+          return await parser.getText();
+        } finally {
+          await parser.destroy();
+        }
+      };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to load pdf-parse dependency: ${detail}`);

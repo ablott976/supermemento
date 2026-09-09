@@ -111,6 +111,8 @@ describe("Memory metadata persistence", () => {
     const client = clientWithSession({
       run: async (query, params) => {
         assert.match(query, /m.metadata = COALESCE\(\$metadata, m.metadata\)/);
+        assert.match(query, /m.embedding = COALESCE\(\$embedding, m.embedding\)/);
+        assert.deepEqual(params.embedding, null);
         assert.ok(params.metadata === null || typeof params.metadata === "string");
         stored = params.metadata as string | null ?? stored;
         return { records: [record(stored)] };
