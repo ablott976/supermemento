@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 from urllib.parse import urlparse
 
+from .oauth_redirects import CLAUDE_REDIRECT, loopback_redirect_key
+
 CHATGPT_DYNAMIC_REDIRECT_PATTERN = "https://chatgpt.com/connector/oauth/{callback_id}"
 CHATGPT_LEGACY_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
 _DEFAULT_REDIRECT = CHATGPT_LEGACY_REDIRECT
@@ -98,7 +100,9 @@ def _validated_store_path(value: str) -> str:
 
 
 def client_redirect_uri_allowed(uri: str, allowed_redirects: tuple[str, ...]) -> bool:
-    """Match exact redirects or ChatGPT's tightly scoped dynamic callback."""
+    """Match supported hosted/native callbacks and configured exact redirects."""
+    if uri == CLAUDE_REDIRECT or loopback_redirect_key(uri) is not None:
+        return True
     if uri == CHATGPT_DYNAMIC_REDIRECT_PATTERN:
         return False
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in uri):

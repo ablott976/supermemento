@@ -22,6 +22,8 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 from mcp.server.auth.provider import AccessToken
 
+from .oauth_redirects import registered_redirect_matches
+
 
 PUBLIC_SCOPES = ("supermemento:access",)
 
@@ -883,7 +885,10 @@ class GatewayOAuthManager:
                     "redirect_uri is required for clients with multiple redirects",
                 )
             return client.redirect_uris[0]
-        if redirect_uri not in client.redirect_uris:
+        if not any(
+            registered_redirect_matches(redirect_uri, registered)
+            for registered in client.redirect_uris
+        ):
             raise OAuthFlowError(
                 "invalid_request", "redirect_uri is not registered for this client"
             )
