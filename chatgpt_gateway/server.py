@@ -68,7 +68,9 @@ def build_host_origin_options(settings: GatewaySettings) -> dict[str, object]:
             "supermemento-chatgpt",
             "n8n-supermemento-chatgpt",
         ],
-        "allowed_origins": [settings.public_base_url, "https://chatgpt.com"],
+        "allowed_origins": [
+            settings.public_base_url, "https://chatgpt.com", "https://claude.ai",
+        ],
     }
 
 
@@ -219,6 +221,7 @@ def _json_no_store(
 
 def _consent_page(pending: Any, *, error: str | None = None) -> HTMLResponse:
     escaped_client = GatewayOAuthManager.quote_html(pending.client_id)
+    escaped_redirect = GatewayOAuthManager.quote_html(pending.redirect_uri)
     escaped_error = GatewayOAuthManager.quote_html(error)
     error_html = f'<p class="error">{escaped_error}</p>' if error else ""
     html = f"""<!doctype html>
@@ -242,8 +245,10 @@ def _consent_page(pending: Any, *, error: str | None = None) -> HTMLResponse:
 <main>
   <h1>Autorizar Supermemento</h1>
   <div class="notice">
-    <p>Conecta ChatGPT con el conocimiento de Supermemento.</p>
+    <p>Conecta tu cliente con el conocimiento de Supermemento.</p>
     <p><strong>Cliente:</strong> <code>{escaped_client}</code></p>
+    <p><strong>Destino:</strong> <code style="overflow-wrap:anywhere">{escaped_redirect}</code></p>
+    <p>Autoriza solo una conexion que hayas iniciado. Un destino local devuelve el acceso a una aplicacion de este equipo.</p>
   </div>
   {error_html}
   <form method="post" action="authorize" autocomplete="off">
