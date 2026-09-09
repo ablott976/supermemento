@@ -23,7 +23,7 @@ import { ProfileService } from "./services/profiles/profile-service.js";
 import { RelationClassifierService } from "./services/relation-classifier.js";
 import { SearchService } from "./services/search/search-service.js";
 import { WebCrawlerConnector } from "./services/connectors/web-crawler.js";
-import { ContentType, DocumentStatus, MemoryType } from "./types/index.js";
+import { ContentType, DocumentStatus, MemoryType, RelationType } from "./types/index.js";
 
 /** Accept both "YYYY-MM-DD" and full ISO datetime, normalising date-only to midnight UTC */
 const flexibleDatetime = z.string().transform((v) => {
@@ -151,23 +151,21 @@ const updateMemoryArgsSchema = z.object({
   memoryType: z.nativeEnum(MemoryType).optional(),
   isLatest: z.boolean().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  validFrom: z.string().nullable().optional().transform((v) => {
-    if (!v) return v;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
-    return v;
-  }),
-  validTo: z.string().nullable().optional().transform((v) => {
-    if (!v) return v;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
-    return v;
-  }),
-  forgottenAt: z.string().nullable().optional()
+  validFrom: flexibleDatetime.unwrap().nullable().optional(),
+  validTo: flexibleDatetime.unwrap().nullable().optional(),
+  forgottenAt: flexibleDatetime.unwrap().nullable().optional()
 });
 
 export const updateMemoryInputSchema = zodToJsonSchema(updateMemoryArgsSchema);
 
 const getMemoryRelationsArgsSchema = z.object({
   memoryId: z.string().uuid()
+});
+
+const createMemoryRelationArgsSchema = z.object({
+  fromMemoryId: z.string().uuid(),
+  toMemoryId: z.string().uuid(),
+  relationType: z.enum([RelationType.Updates, RelationType.Extends, RelationType.Derives])
 });
 
 const forgetMemoryArgsSchema = z.object({
@@ -190,7 +188,7 @@ const crawlUrlArgsSchema = z.object({
 });
 
 const crawlUrlsArgsSchema = z.object({
-  urls: z.array(z.string().url()).min(1),
+  urls: z.array(z.string().url()).min(1).max(20),
   containerTag: z.string().min(1)
 });
 
@@ -570,7 +568,7 @@ export class SupermementoServer {
         },
         {
           name: "ingest_document",
-          description: "Ingest a document through full extraction/chunking/memory/index pipeline",
+          description: "Ingest through the extraction/chunking/memory/index pipeline. For pdf, content accepts base64 PDF bytes or a public HTTP(S) PDF URL. For url, content is a public HTTP(S) URL. For text, content is plain text or Markdown. URL downloads are size/time limited and cannot access private networks.",
           inputSchema: zodToJsonSchema(ingestDocumentArgsSchema)
         },
         {
@@ -622,6 +620,11 @@ export class SupermementoServer {
           name: "get_memory_relations",
           description: "Get all relations connected to a memory",
           inputSchema: zodToJsonSchema(getMemoryRelationsArgsSchema)
+        },
+        {
+          name: "create_memory_relation",
+          description: "Link two existing memories in the same container. UPDATES points from the replacement to the old memory and marks the old memory not latest. EXTENDS adds detail; DERIVES links a derived memory to its source. Repeated links are not duplicated.",
+          inputSchema: zodToJsonSchema(createMemoryRelationArgsSchema)
         },
         {
           name: "run_maintenance",
@@ -918,7 +921,11 @@ export class SupermementoServer {
 
           case "update_memory": {
             const input = updateMemoryArgsSchema.parse(args);
+            const embedding = input.content === undefined
+              ? undefined
+              : await this.embeddingService.generateEmbedding(input.content);
             const memory = await this.neo4jClient.updateMemory(input.memoryId, {
+              embedding,
               metadata: input.metadata,
               content: input.content,
               memoryType: input.memoryType,
@@ -931,7 +938,22 @@ export class SupermementoServer {
             if (!memory) {
               return asError(`Memory not found: ${input.memoryId}`);
             }
-            return asJson({ memory });
+            return asJson({ memory: stripEmbedding(memory as unknown as Record<string, unknown>) });
+          }
+
+          case "create_memory_relation": {
+            const input = createMemoryRelationArgsSchema.parse(args);
+            if (input.fromMemoryId === input.toMemoryId) return asError("Cannot link a memory to itself");
+            const from = await this.neo4jClient.getMemory(input.fromMemoryId);
+            const to = await this.neo4jClient.getMemory(input.toMemoryId);
+            if (!from || !to) return asError("Both memories must exist");
+            if (from.containerTag !== to.containerTag) return asError("Memories must share a container");
+            if (from.forgottenAt || to.forgottenAt) return asError("Cannot link forgotten memories");
+            const created = await this.neo4jClient.createMemoryRelation(
+              input.fromMemoryId, input.toMemoryId, input.relationType,
+              { markTargetNotLatest: input.relationType === RelationType.Updates }
+            );
+            return asJson({ ...input, created });
           }
 
           case "get_memory_relations": {
@@ -1067,6 +1089,13 @@ function mapZodType(
 ): { schema: Record<string, unknown>; required: boolean } {
   const optional = type instanceof z.ZodOptional || type instanceof z.ZodDefault;
   const target = type instanceof z.ZodOptional || type instanceof z.ZodDefault ? type._def.innerType : type;
+
+  if (target instanceof z.ZodNullable) {
+    return {
+      schema: { anyOf: [mapZodType(target.unwrap()).schema, { type: "null" }] },
+      required: !optional
+    };
+  }
 
   if (target instanceof z.ZodString) {
     return { schema: { type: "string" }, required: !optional };

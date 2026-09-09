@@ -6,6 +6,12 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { batchCreateMemoriesInputSchema, createMemoryInputSchema, SupermementoServer, updateMemoryInputSchema } from "./server.js";
 
 describe("Supermemento MCP tool schemas", () => {
+  it("keeps update validity dates optional and nullable", () => {
+    assert.deepEqual(updateMemoryInputSchema.required, ["memoryId"]);
+    for (const field of ["validFrom", "validTo", "forgottenAt"]) {
+      assert.deepEqual(updateMemoryInputSchema.properties?.[field], { anyOf: [{ type: "string" }, { type: "null" }] });
+    }
+  });
   it("exposes optional object metadata on create and update", () => {
     for (const schema of [createMemoryInputSchema, updateMemoryInputSchema]) {
       assert.deepEqual(schema.properties?.metadata, { type: "object", additionalProperties: true });
@@ -91,6 +97,55 @@ describe("Memory metadata MCP requests", () => {
       assert.equal(received.length, 3);
       assert.ok(!(await client.callTool({ name: "create_memory", arguments: input })).isError);
       assert.equal(received.at(-1)?.metadata, undefined);
+      const updated = await client.callTool({ name: "update_memory", arguments: {
+        memoryId: sourceDocId, content: "Corrected fact", validTo: "2026-09-01"
+      } });
+      assert.ok(!updated.isError);
+      assert.deepEqual(received.at(-1)?.embedding, [0.1]);
+      assert.equal(received.at(-1)?.validTo, "2026-09-01T00:00:00Z");
+      assert.ok(!JSON.parse((updated.content as { text: string }[])[0]!.text).memory.embedding);
+      assert.ok(!(await client.callTool({ name: "update_memory", arguments: { memoryId: sourceDocId, validTo: null } })).isError);
+      assert.equal(received.at(-1)?.validTo, null);
+      const before = received.length;
+      assert.equal((await client.callTool({ name: "update_memory", arguments: { memoryId: sourceDocId, validTo: "invalid" } })).isError, true);
+      assert.equal(received.length, before);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+describe("Explicit memory relations", () => {
+  it("validates memory ownership and relation types before using the atomic writer", async () => {
+    const from = "d54b705e-06d9-4fc9-8a60-b45e306ef1c7";
+    const to = "d54b705e-06d9-4fc9-8a60-b45e306ef1c8";
+    const other = "d54b705e-06d9-4fc9-8a60-b45e306ef1c9";
+    const calls: unknown[][] = [];
+    const app = Object.assign(Object.create(SupermementoServer.prototype), {
+      neo4jClient: {
+        getMemory: async (id: string) => id === from || id === to
+          ? { id, containerTag: "test" } : { id, containerTag: "other" },
+        createMemoryRelation: async (...args: unknown[]) => { calls.push(args); return calls.length === 1; }
+      }
+    });
+    const server = new Server({ name: "test", version: "1" }, { capabilities: { tools: {} } });
+    app.registerHandlersOnServer(server);
+    const client = new Client({ name: "test-client", version: "1" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    await client.connect(ct);
+    try {
+      assert.ok((await client.listTools()).tools.some(t => t.name === "create_memory_relation"));
+      const args = { fromMemoryId: from, toMemoryId: to, relationType: "UPDATES" };
+      for (let i = 0; i < 2; i += 1) {
+        assert.ok(!(await client.callTool({ name: "create_memory_relation", arguments: args })).isError);
+      }
+      assert.deepEqual(calls[0], [from, to, "UPDATES", { markTargetNotLatest: true }]);
+      for (const invalid of [{ toMemoryId: from }, { toMemoryId: other }, { relationType: "INJECTED" }]) {
+        assert.equal((await client.callTool({ name: "create_memory_relation", arguments: { ...args, ...invalid } })).isError, true);
+      }
+      assert.equal(calls.length, 2);
     } finally {
       await client.close();
       await server.close();

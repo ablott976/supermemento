@@ -45,6 +45,7 @@ type MemoryCreateInput = {
 type MemoryUpdateInput = {
   metadata?: Metadata;
   content?: string;
+  embedding?: number[];
   memoryType?: MemoryType;
   isLatest?: boolean;
   confidence?: number;
@@ -669,6 +670,7 @@ export class Neo4jClient {
         `
         MATCH (m:Memory {id: $id})
         SET m.content = COALESCE($content, m.content),
+            m.embedding = COALESCE($embedding, m.embedding),
             m.metadata = COALESCE($metadata, m.metadata),
             m.memoryType = COALESCE($memoryType, m.memoryType),
             m.isLatest = CASE WHEN $isLatest IS NULL THEN m.isLatest ELSE $isLatest END,
@@ -681,6 +683,7 @@ export class Neo4jClient {
         {
           id: memoryId,
           content: input.content ?? null,
+          embedding: input.embedding ?? null,
           metadata: input.metadata === undefined ? null : JSON.stringify(input.metadata),
           memoryType: input.memoryType ?? null,
           isLatest: typeof input.isLatest === "boolean" ? input.isLatest : null,

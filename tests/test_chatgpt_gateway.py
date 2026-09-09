@@ -506,7 +506,12 @@ def _backend() -> FastMCP:
     async def delete_memory(memoryId: str) -> dict:
         return {"deleted": memoryId}
 
+    @backend.tool
+    async def run_maintenance() -> dict:
+        raise AssertionError("Global maintenance must never reach the backend")
+
     defined = {
+        "delete_memory",
         "semantic_search",
         "get_user_profile",
         "list_memories",
@@ -532,13 +537,22 @@ def test_tool_surface_is_allowlisted_annotated_and_uses_safe_defaults() -> None:
             tools = await client.list_tools()
             tool_map = {tool.name: tool for tool in tools}
             assert set(tool_map) == set(ALLOWED_TOOLS)
-            assert "delete_memory" not in tool_map
+            assert len(tool_map) == 18
+            for name in ["batch_create_memories", "update_memory", "forget_memory", "delete_memory", "create_memory_relation", "ingest_document", "ingest_url", "crawl_url", "crawl_urls"]:
+                assert name in tool_map
+            assert tool_map["delete_memory"].annotations.destructiveHint is True
+            assert tool_map["update_memory"].annotations.destructiveHint is True
+            assert tool_map["forget_memory"].annotations.destructiveHint is True
+            assert tool_map["create_memory_relation"].annotations.destructiveHint is True
             assert tool_map["semantic_search"].annotations.readOnlyHint is True
             assert tool_map["create_memory"].annotations.readOnlyHint is False
-            assert "ingest_url" not in tool_map
-            assert "ingest_document" not in tool_map
-            assert "crawl_url" not in tool_map
-            assert "crawl_urls" not in tool_map
+            for name in ["ingest_url", "ingest_document", "crawl_url", "crawl_urls"]:
+                assert tool_map[name].annotations.openWorldHint is True
+                assert tool_map[name].annotations.readOnlyHint is False
+            assert "run_maintenance" not in tool_map
+            assert "setup_schema" not in tool_map
+            deleted = await client.call_tool("delete_memory", {"memoryId": "test-fixture"})
+            assert deleted.data == {"deleted": "test-fixture"}
             assert (
                 "regenerate"
                 not in tool_map["get_user_profile"].inputSchema["properties"]
@@ -686,7 +700,7 @@ def test_http_oauth_dcr_redirects_and_authenticated_mcp(tmp_path: Path) -> None:
                 "id": 4,
                 "method": "tools/call",
                 "params": {
-                    "name": "delete_memory",
+                    "name": "run_maintenance",
                     "arguments": {"memoryId": "blocked"},
                 },
             },

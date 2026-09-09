@@ -47,11 +47,23 @@ PY
 
 ## Seguridad de tools
 
-- Herramientas ocultas por defecto; solo se exponen nueve tools explícitas.
+- Herramientas ocultas por defecto; se exponen 18 tools explicitas.
 - Lecturas con defaults seguros para `zkteco-pmm`.
-- Escrituras no destructivas marcadas correctamente en MCP.
-- `ingest_url`, `ingest_document` y `crawl_*` quedan fuera hasta corregir la validación SSRF común.
-- `setup_schema`, mantenimiento, delete, forget y update no se publican.
+- `update_memory`, `forget_memory`, `delete_memory` y `create_memory_relation`
+  se publican con `destructiveHint=true`, con autorizacion explicita de Arturo
+  el 2026-09-09. `forget_memory` es borrado logico; `delete_memory` es fisico.
+- Tambien se publican `batch_create_memories`, `ingest_document`, `ingest_url`,
+  `crawl_url` y `crawl_urls`. Las cuatro herramientas de ingesta/crawl declaran
+  `openWorldHint=true`.
+- La descarga compartida solo admite HTTP(S) publico en puertos estandar, sin
+  credenciales en la URL. Rechaza IPs no publicas (incluyendo IPv4 mapeada en
+  IPv6), valida todas las respuestas DNS y fija la IP validada a la conexion.
+  Revalida cada redireccion; limita a cinco saltos, 30 segundos por descarga y
+  10 MiB. `crawl_urls` admite hasta 20 URLs por llamada. No usa Firecrawl.
+- `ingest_document` con `contentType=pdf` acepta base64 o URL publica de PDF;
+  con `contentType=text` acepta texto o Markdown. No acepta rutas locales.
+- `setup_schema`, mantenimiento global, creacion/edicion/borrado directo de
+  documentos y refuerzo manual de preferencias siguen ocultos.
 - Rate limit global, respuestas limitadas y errores internos ocultos.
 - Protección Host/Origin estricta: solo el dominio público del gateway y `https://chatgpt.com` pueden originar peticiones de navegador; cualquier otro origen se rechaza antes de OAuth.
 - Imagen non-root, dependencias fijadas con hashes, Tini y `Cap Drop=ALL` en EasyPanel.
@@ -84,7 +96,13 @@ Montar un volumen dedicado en `/data`. El fichero OAuth se escribe de forma ató
 - `/.well-known/oauth-protected-resource/mcp` anuncia el recurso correcto.
 - `/.well-known/oauth-authorization-server` anuncia DCR, authorization, token y PKCE `S256`.
 - DCR acepta únicamente el callback oficial configurado.
-- ChatGPT descubre exactamente nueve tools.
+- El cliente descubre exactamente 18 tools, incluyendo las nueve ampliadas.
+- Comprobar anotaciones destructivas y open-world, y rechazo de URLs internas.
+
+La ampliacion requiere publicar primero el backend con las protecciones de URL
+y la herramienta de relaciones, y despues el gateway. No publicar solo el
+gateway contra un backend anterior. Conservar OAuth, volumenes y credenciales.
+La aprobacion y el PR no constituyen evidencia de despliegue completado.
 
 ## Conexión en ChatGPT
 
