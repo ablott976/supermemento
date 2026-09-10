@@ -13,10 +13,12 @@ describe("SearchService query rewrite fallback", () => {
     const metadata = { messageId: "mail-123", nested: { tags: ["pmm"] } };
     const neo4jClient = {
       semanticSearchMemoriesAdvanced: async () => [
-        { memory: { id: "new", content: "New fact", metadata }, score: 0.95 },
-        { memory: { id: "legacy", content: "Legacy fact" }, score: 0.9 }
+        { memory: { id: "new", content: "New fact", metadata, confidence: 0.8, validFrom: "2026-01-01T00:00:00.000Z", validTo: "2026-06-30T00:00:00.000Z", isLatest: true, forgottenAt: null }, score: 0.95 },
+        { memory: { id: "legacy", content: "Legacy fact", confidence: 0.9, isLatest: false }, score: 0.9 }
       ],
-      semanticSearchChunks: async () => []
+      semanticSearchChunks: async () => [
+        { chunk: { id: "chunk-1", content: "chunk", containerTag: "zkteco-pmm", sourceDocId: "doc", chunkIndex: 0, metadata: {} }, score: 0.7 }
+      ]
     } as unknown as Neo4jClient;
     const embeddingService = {
       generateEmbedding: async () => [0.1, 0.2]
@@ -25,8 +27,29 @@ describe("SearchService query rewrite fallback", () => {
     const service = new SearchService({} as AppConfig, neo4jClient, embeddingService, queryRewriter);
     for (const searchMode of ["memory", "hybrid"] as const) {
       const response = await service.search({ query: "fact", searchMode });
-      assert.deepEqual(response.results.find((item) => item.id === "new")?.metadata, metadata);
-      assert.deepEqual(response.results.find((item) => item.id === "legacy")?.metadata, {});
+      const fresh = response.results.find((item) => item.id === "new");
+      const legacy = response.results.find((item) => item.id === "legacy");
+      assert.deepEqual(fresh?.metadata, metadata);
+      assert.deepEqual(legacy?.metadata, {});
+      // MEM-01: validity metadata travels with every memory result, so an expired validTo is visible directly.
+      assert.deepEqual(
+        { confidence: fresh?.confidence, validFrom: fresh?.validFrom, validTo: fresh?.validTo, isLatest: fresh?.isLatest, forgottenAt: fresh?.forgottenAt },
+        { confidence: 0.8, validFrom: "2026-01-01T00:00:00.000Z", validTo: "2026-06-30T00:00:00.000Z", isLatest: true, forgottenAt: null }
+      );
+      assert.deepEqual(
+        { confidence: legacy?.confidence, validFrom: legacy?.validFrom, validTo: legacy?.validTo, isLatest: legacy?.isLatest, forgottenAt: legacy?.forgottenAt },
+        { confidence: 0.9, validFrom: null, validTo: null, isLatest: false, forgottenAt: null }
+      );
+      const serialized = JSON.parse(JSON.stringify(response.results));
+      for (const item of serialized.filter((row: { type: string }) => row.type === "memory")) {
+        for (const key of ["confidence", "validFrom", "validTo", "isLatest", "forgottenAt"]) {
+          assert.ok(key in item, `${key} must be present in the JSON payload`);
+        }
+      }
+      if (searchMode === "hybrid") {
+        const chunk = serialized.find((row: { type: string }) => row.type === "chunk");
+        assert.ok(chunk && !("validTo" in chunk), "chunk results do not carry memory validity fields");
+      }
     }
   });
 

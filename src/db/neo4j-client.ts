@@ -1,6 +1,7 @@
 import neo4j, { Driver, Integer } from "neo4j-driver";
 import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import type { AppConfig } from "../config.js";
+import { memoryContentHash } from "../services/memory-policy.js";
 import { DocumentStatus, MemoryType, RelationType } from "../types/enums.js";
 import type {
   Chunk,
@@ -447,7 +448,8 @@ export class Neo4jClient {
           validTo: CASE WHEN $validTo IS NULL THEN NULL ELSE datetime($validTo) END,
           forgottenAt: NULL,
           createdAt: datetime($createdAt),
-          sourceDocId: $sourceDocId
+          sourceDocId: $sourceDocId,
+          contentHash: $contentHash
         })
         CREATE (m)-[:EXTRACTED_FROM]->(d)
         RETURN m
@@ -463,7 +465,8 @@ export class Neo4jClient {
           validFrom: input.validFrom ?? null,
           validTo: input.validTo ?? null,
           createdAt: now,
-          sourceDocId: input.sourceDocId
+          sourceDocId: input.sourceDocId,
+          contentHash: memoryContentHash(input.containerTag, input.content)
         }
       );
 
@@ -499,7 +502,8 @@ export class Neo4jClient {
       validFrom: input.validFrom ?? null,
       validTo: input.validTo ?? null,
       createdAt: now,
-      sourceDocId: input.sourceDocId
+      sourceDocId: input.sourceDocId,
+      contentHash: memoryContentHash(input.containerTag, input.content)
     }));
 
     const session = this.driver.session();
@@ -522,7 +526,8 @@ export class Neo4jClient {
           validTo: CASE WHEN row.validTo IS NULL THEN NULL ELSE datetime(row.validTo) END,
           forgottenAt: NULL,
           createdAt: datetime(row.createdAt),
-          sourceDocId: row.sourceDocId
+          sourceDocId: row.sourceDocId,
+          contentHash: row.contentHash
         })
         CREATE (m)-[:EXTRACTED_FROM]->(d)
         RETURN m
@@ -607,7 +612,8 @@ export class Neo4jClient {
                         derived.validTo = NULL,
                         derived.forgottenAt = NULL,
                         derived.createdAt = datetime($createdAt),
-                        derived.sourceDocId = $sourceDocId
+                        derived.sourceDocId = $sourceDocId,
+                        derived.contentHash = $contentHash
           MERGE (derived)-[:EXTRACTED_FROM]->(d)
           FOREACH (source IN sources | MERGE (derived)-[:DERIVES]->(source))
           RETURN derived
@@ -621,7 +627,8 @@ export class Neo4jClient {
             sourceDocId: params.sourceDocId,
             sourceMemoryIds,
             createdAt: now,
-            embedding: params.embedding
+            embedding: params.embedding,
+            contentHash: memoryContentHash(params.containerTag, params.content)
           }
         );
       });
@@ -631,6 +638,201 @@ export class Neo4jClient {
       }
 
       return this.mapMemory(result.records[0]?.get("derived"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Finds the oldest active memory (latest, not forgotten, not expired) in a
+   * container whose normalised content hash matches. Used for exact dedup.
+   * @param containerTag Container namespace.
+   * @param contentHash Hash from memoryContentHash().
+   */
+  public async findActiveMemoryByContentHash(
+    containerTag: string,
+    contentHash: string
+  ): Promise<Memory | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory {containerTag: $containerTag, contentHash: $contentHash})
+        WHERE m.isLatest = true
+          AND m.forgottenAt IS NULL
+          AND (m.validTo IS NULL OR m.validTo >= datetime())
+        RETURN m
+        ORDER BY m.createdAt ASC
+        LIMIT 1
+        `,
+        { containerTag, contentHash }
+      );
+      if (result.records.length === 0) {
+        return null;
+      }
+      return this.mapMemory(result.records[0]?.get("m"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Lists memories created before content hashing existed.
+   * @param limit Batch size.
+   */
+  public async listMemoriesMissingContentHash(
+    limit: number
+  ): Promise<Array<{ id: string; containerTag: string; content: string }>> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory)
+        WHERE m.contentHash IS NULL
+        RETURN m.id AS id, m.containerTag AS containerTag, m.content AS content
+        ORDER BY m.createdAt ASC
+        LIMIT $limit
+        `,
+        { limit: neo4j.int(limit) }
+      );
+      return result.records.map((record) => ({
+        id: String(record.get("id")),
+        containerTag: String(record.get("containerTag")),
+        content: String(record.get("content") ?? "")
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Stores precomputed content hashes on existing memories (backfill).
+   * @param rows Memory id and hash pairs.
+   */
+  public async setMemoryContentHashes(rows: Array<{ id: string; contentHash: string }>): Promise<number> {
+    if (rows.length === 0) {
+      return 0;
+    }
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        UNWIND $rows AS row
+        MATCH (m:Memory {id: row.id})
+        SET m.contentHash = row.contentHash
+        RETURN count(m) AS count
+        `,
+        { rows }
+      );
+      return Number(result.records[0]?.get("count") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Groups active memories that share containerTag and contentHash. Members are
+   * ordered oldest first so the first one is the canonical memory.
+   */
+  public async findDuplicateMemoryGroups(): Promise<Array<{
+    containerTag: string;
+    contentHash: string;
+    members: Array<{ id: string; createdAt: string; content: string; sourceDocId: string }>;
+  }>> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory)
+        WHERE m.contentHash IS NOT NULL
+          AND m.isLatest = true
+          AND m.forgottenAt IS NULL
+          AND (m.validTo IS NULL OR m.validTo >= datetime())
+        WITH m.containerTag AS containerTag, m.contentHash AS contentHash, m
+        ORDER BY m.createdAt ASC
+        WITH containerTag, contentHash,
+             collect({id: m.id, createdAt: toString(m.createdAt), content: m.content, sourceDocId: m.sourceDocId}) AS members
+        WHERE size(members) > 1
+        RETURN containerTag, contentHash, members
+        ORDER BY containerTag, contentHash
+        `
+      );
+      return result.records.map((record) => ({
+        containerTag: String(record.get("containerTag")),
+        contentHash: String(record.get("contentHash")),
+        members: (record.get("members") as Array<Record<string, unknown>>).map((member) => ({
+          id: String(member.id),
+          createdAt: String(member.createdAt),
+          content: String(member.content ?? ""),
+          sourceDocId: String(member.sourceDocId ?? "")
+        }))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Reversible retirement of exact duplicates: isLatest=false plus a
+   * DUPLICATE_OF relation and run markers. Nothing is deleted.
+   * @param params Canonical id, duplicate ids and the run identifier.
+   */
+  public async retireDuplicateMemories(params: {
+    canonicalId: string;
+    duplicateIds: string[];
+    runId: string;
+  }): Promise<number> {
+    if (params.duplicateIds.length === 0) {
+      return 0;
+    }
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (canonical:Memory {id: $canonicalId})
+        UNWIND $duplicateIds AS duplicateId
+        MATCH (duplicate:Memory {id: duplicateId})
+        WHERE duplicate.id <> canonical.id
+        SET duplicate.isLatest = false,
+            duplicate.dedupRunId = $runId,
+            duplicate.dedupCanonicalId = $canonicalId,
+            duplicate.dedupRetiredAt = datetime($retiredAt)
+        MERGE (duplicate)-[r:DUPLICATE_OF]->(canonical)
+        ON CREATE SET r.runId = $runId
+        RETURN count(duplicate) AS count
+        `,
+        {
+          canonicalId: params.canonicalId,
+          duplicateIds: params.duplicateIds,
+          runId: params.runId,
+          retiredAt: new Date().toISOString()
+        }
+      );
+      return Number(result.records[0]?.get("count") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Undoes retireDuplicateMemories for one run.
+   * @param runId Run identifier used when retiring.
+   */
+  public async restoreRetiredDuplicates(runId: string): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory {dedupRunId: $runId})
+        OPTIONAL MATCH (m)-[r:DUPLICATE_OF {runId: $runId}]->(:Memory)
+        DELETE r
+        SET m.isLatest = true
+        REMOVE m.dedupRunId, m.dedupCanonicalId, m.dedupRetiredAt
+        RETURN count(DISTINCT m) AS count
+        `,
+        { runId }
+      );
+      return Number(result.records[0]?.get("count") ?? 0);
     } finally {
       await session.close();
     }
@@ -1506,11 +1708,23 @@ export class Neo4jClient {
       sourceUrl: this.nullableString(props.sourceUrl),
       filePath: this.nullableString(props.filePath),
       containerTag: String(props.containerTag),
-      metadata: (props.metadata as Metadata) ?? {},
+      metadata: this.parseMetadata(props.metadata),
       status: props.status as DocumentStatus,
       createdAt: this.toIsoString(props.createdAt),
       updatedAt: this.toIsoString(props.updatedAt)
     };
+  }
+
+  private parseMetadata(value: unknown): Metadata {
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Metadata) : {};
+      } catch {
+        return {};
+      }
+    }
+    return (value as Metadata) ?? {};
   }
 
   private mapMemory(nodeValue: unknown): Memory {
@@ -1534,7 +1748,8 @@ export class Neo4jClient {
       validTo: this.toNullableIsoString(props.validTo),
       forgottenAt: this.toNullableIsoString(props.forgottenAt),
       createdAt: this.toIsoString(props.createdAt),
-      sourceDocId: String(props.sourceDocId)
+      sourceDocId: String(props.sourceDocId),
+      contentHash: this.nullableString(props.contentHash)
     };
   }
 
