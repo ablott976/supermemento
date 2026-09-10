@@ -165,3 +165,55 @@ setup:schema`) para crear los índices `memory_container_content_hash` y
 | `batch_create_memories` con 2 a 50 memorias, con duplicados dentro y fuera del lote | `server.test.ts` |
 | la ingesta aplica las dos reglas | `pipeline.test.ts`, `server.test.ts` (ingest y crawl) |
 | «GTC» → GoTimeCloud, «GBC» → GoBridgeCloud, sin «GoBridgeTimeCloud» | verificación en producción |
+
+## Despliegue y verificación — 2026-09-10
+
+Commit 0e011a6 (main, #66). Mecanismo, el mismo que en despliegues anteriores
+del backend (no hay checkout git en el VPS ni build de EasyPanel para este
+servicio):
+
+1. `git archive origin/main` enviado por SSH a `/tmp/supermemento-build-<sha>`
+   en el VPS.
+2. `docker build --label org.opencontainers.image.revision=<sha> -t
+   supermemento:<sha7> .` (y `supermemento-chatgpt:<sha7>` con
+   `Dockerfile.chatgpt-gateway`, aunque el gateway no cambió y no se desplegó).
+3. `docker service update --no-resolve-image --image supermemento:0e011a6
+   n8n_supermemento`: convergió en segundos, arranque limpio, `/health` 200
+   desde la red interna. El gateway `n8n_supermemento-chatgpt` sigue en
+   `3f5846f`; `/ready` 200.
+4. Dentro del contenedor: `node dist/schema/setup-schema.js` (índices
+   `memory_container_content_hash` y `memory_dedup_run` creados) y
+   `node dist/admin/repair-knowledge.js backfill-content-hashes` → 15 093
+   memorias con hash en 31 lotes.
+5. `dedupe-history dedupe-2026-09-10` (informe): 160 grupos, 568 duplicados
+   (129 grupos en `zkteco-pmm`, 31 en `memento-v1`). Tras validar las reglas
+   en producción, `--apply`: 568 memorias retiradas (`isLatest: false`,
+   relación `DUPLICATE_OF` a 160 canónicas), 0 grupos restantes. Informe y
+   resultado guardados en `~/backups/supermemento/` del VPS. Reversible con
+   `node dist/admin/repair-knowledge.js restore-dedupe dedupe-2026-09-10`.
+
+Batería de aceptación ejecutada por JSON-RPC directo al backend (contenedor
+`chatgpt-mcp-canary`) y por el conector de Claude (gateway):
+
+- `tools/list`: 24 tools; `temporal_class` en `create_memory`, en los
+  elementos de `batch_create_memories` y en las cinco tools de ingesta/crawl.
+- `create_memory` con `temporal_class: pricing` y sin `validTo` → error
+  `validTo is required when temporal_class is pricing`; con `validTo` →
+  `created: true`, memoria `2bf8ae62-c96d-466c-bf76-a74f88e24575` con
+  `metadata.temporal_class: "pricing"`.
+- Mismo contenido con mayúsculas y puntuación distintas → `created: false`,
+  `duplicateOf` igual al id anterior, sin nodo nuevo.
+- `batch_create_memories` con dos memorias (una nueva `pipeline` con
+  `validTo`, una duplicada) → `count: 1`, `duplicates: [{index: 1,
+  duplicateOf: ...}]`; con `roadmap` sin `validTo` → rechazado con el índice.
+- `ingest_document` con `temporal_class: pricing` sin `validTo` → rechazado
+  antes de crear el documento.
+- `semantic_search` (memory, `zkteco-pmm`): cada resultado incluye
+  `confidence`, `validFrom`, `validTo`, `isLatest` y `forgottenAt`. «GTC»
+  devuelve memorias de GoTimeCloud; «GBC» devuelve memorias de GoBridgeCloud
+  (incluida la aclaración del 2026-09-10 de que GTC y GBC son productos
+  distintos); «GoBridgeTimeCloud» no devuelve ninguna memoria que use ese
+  término, solo memorias de GoTimeCloud y GoBridgeCloud por separado.
+
+Las dos memorias canary creadas en la verificación viven en
+`chatgpt-mcp-canary` y no afectan a `zkteco-pmm`.
