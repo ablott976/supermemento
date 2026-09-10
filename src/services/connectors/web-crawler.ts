@@ -1,4 +1,5 @@
 import { ContentType, DocumentStatus } from "../../types/enums.js";
+import type { Metadata } from "../../types/models.js";
 import { Neo4jClient } from "../../db/neo4j-client.js";
 import { IngestionPipeline } from "../ingestion/pipeline.js";
 import { UrlExtractor } from "../ingestion/extractors/url-extractor.js";
@@ -8,19 +9,24 @@ import { BaseConnector, type ConnectorDocument } from "./base-connector.js";
 export class WebCrawlerConnector extends BaseConnector {
   private readonly urls: string[];
   private readonly containerTag: string;
+  private readonly documentMetadata: Metadata;
 
   /**
    * Creates web crawler connector.
+   * @param documentMetadata Extra metadata stored on every crawled document, e.g. the
+   * temporal policy (temporal_class, valid_to) that the ingestion pipeline enforces.
    */
   public constructor(
     neo4jClient: Neo4jClient,
     ingestionPipeline: IngestionPipeline,
     urls: string[],
-    containerTag: string
+    containerTag: string,
+    documentMetadata: Metadata = {}
   ) {
     super(neo4jClient, ingestionPipeline);
     this.urls = urls;
     this.containerTag = containerTag;
+    this.documentMetadata = documentMetadata;
   }
 
   /**
@@ -48,6 +54,7 @@ export class WebCrawlerConnector extends BaseConnector {
         containerTag: this.containerTag,
         sourceUrl: url,
         metadata: {
+          ...this.documentMetadata,
           crawledBy: "web_crawler",
           fetchedAt: new Date().toISOString()
         }
@@ -133,6 +140,7 @@ export class WebCrawlerConnector extends BaseConnector {
           containerTag,
           sourceUrl: url,
           metadata: {
+            ...this.documentMetadata,
             crawledBy: "web_crawler",
             fetchedAt: new Date().toISOString()
           }

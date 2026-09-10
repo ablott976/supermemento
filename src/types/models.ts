@@ -34,6 +34,8 @@ export interface Memory {
   forgottenAt?: string | null;
   createdAt: string;
   sourceDocId: string;
+  /** sha256 of containerTag + normalised content; null on memories created before dedup. */
+  contentHash?: string | null;
 }
 
 /** :Chunk node schema in Neo4j. */

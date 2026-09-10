@@ -149,3 +149,27 @@ describe("LLM environment configuration", () => {
     }
   });
 });
+
+
+describe("Dedup configuration", () => {
+  it("defaults the semantic near-duplicate threshold and limit", () => {
+    baseEnvironment();
+    process.env.ANTHROPIC_API_KEY = "anthropic-key";
+    delete process.env.DEDUP_SEMANTIC_THRESHOLD;
+    delete process.env.DEDUP_SEMANTIC_LIMIT;
+    const config = loadConfig();
+    assert.equal(config.DEDUP_SEMANTIC_THRESHOLD, 0.95);
+    assert.equal(config.DEDUP_SEMANTIC_LIMIT, 3);
+  });
+
+  it("reads and validates overrides", () => {
+    baseEnvironment();
+    process.env.ANTHROPIC_API_KEY = "anthropic-key";
+    process.env.DEDUP_SEMANTIC_THRESHOLD = "0.9";
+    process.env.DEDUP_SEMANTIC_LIMIT = "5";
+    assert.equal(loadConfig().DEDUP_SEMANTIC_THRESHOLD, 0.9);
+    assert.equal(loadConfig().DEDUP_SEMANTIC_LIMIT, 5);
+    process.env.DEDUP_SEMANTIC_THRESHOLD = "1.5";
+    assert.throws(() => loadConfig(), /Invalid environment configuration/);
+  });
+});

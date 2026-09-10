@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { AppConfig } from "../config.js";
 import { Neo4jClient } from "./neo4j-client.js";
+import { memoryContentHash } from "../services/memory-policy.js";
 import { MemoryType, RelationType } from "../types/enums.js";
 
 const config = {
@@ -387,5 +388,167 @@ describe("Neo4jClient repair relation idempotency", () => {
     assert.doesNotMatch(queries[0] ?? "", /DELETE preserved/);
     assert.match(queries[1] ?? "", /DELETE preserved/);
     assert.match(queries[1] ?? "", /repairRunId: \$repairId/);
+  });
+});
+
+
+describe("Exact dedup support in Neo4jClient", () => {
+  const input = {
+    content: "GTC significa GoTimeCloud.",
+    memoryType: MemoryType.Fact,
+    containerTag: "test",
+    confidence: 0.9,
+    embedding: [0.1, 0.2],
+    sourceDocId: "document-1"
+  };
+  const expectedHash = memoryContentHash("test", input.content);
+  const record = (props: Record<string, unknown>) => ({
+    get: () => ({ properties: { ...input, id: "memory-1", createdAt: "2026-01-01T00:00:00Z", metadata: "{}", ...props } })
+  });
+
+  it("stores contentHash on single, batch and derived creation", async () => {
+    const single = clientWithSession({
+      run: async (query, params) => {
+        assert.match(query, /contentHash: \$contentHash/);
+        assert.equal(params.contentHash, expectedHash);
+        return { records: [record({ contentHash: params.contentHash })] };
+      },
+      close: async () => undefined
+    });
+    assert.equal((await single.createMemory(input)).contentHash, expectedHash);
+
+    const batch = clientWithSession({
+      run: async (query, params) => {
+        assert.match(query, /contentHash: row.contentHash/);
+        const rows = params.rows as { contentHash: string; content: string }[];
+        assert.deepEqual(rows.map((row) => row.contentHash), [expectedHash, memoryContentHash("test", "otra")]);
+        return { records: rows.map((row) => record({ contentHash: row.contentHash, content: row.content })) };
+      },
+      close: async () => undefined
+    });
+    assert.deepEqual((await batch.batchCreateMemories([input, { ...input, content: "otra" }])).map((m) => m.contentHash), [expectedHash, memoryContentHash("test", "otra")]);
+
+    const derived = clientWithSession({
+      executeWrite: async (work) => work({
+        run: async (query: string, params: Record<string, unknown>) => {
+          if (query.includes("DERIVES]->(source:Memory)")) return { records: [] };
+          assert.match(query, /derived\.contentHash = \$contentHash/);
+          assert.equal(params.contentHash, memoryContentHash("test", "Hecho derivado"));
+          return { records: [record({ content: "Hecho derivado", memoryType: "derived", contentHash: params.contentHash })] };
+        }
+      }),
+      close: async () => undefined
+    });
+    const derivedMemory = await derived.createDerivedMemory({ content: "Hecho derivado", containerTag: "test", sourceDocId: "document-1", sourceMemoryIds: ["m-a"], embedding: [0.1] });
+    assert.equal(derivedMemory.contentHash, memoryContentHash("test", "Hecho derivado"));
+  });
+
+  it("looks up only active memories by container and hash", async () => {
+    let seen: Record<string, unknown> = {};
+    const client = clientWithSession({
+      run: async (query, params) => {
+        seen = params;
+        assert.match(query, /MATCH \(m:Memory \{containerTag: \$containerTag, contentHash: \$contentHash\}\)/);
+        assert.match(query, /m\.isLatest = true/);
+        assert.match(query, /m\.forgottenAt IS NULL/);
+        assert.match(query, /m\.validTo IS NULL OR m\.validTo >= datetime\(\)/);
+        assert.match(query, /ORDER BY m\.createdAt ASC/);
+        return { records: params.contentHash === expectedHash ? [record({ contentHash: expectedHash })] : [] };
+      },
+      close: async () => undefined
+    });
+    const hit = await client.findActiveMemoryByContentHash("test", expectedHash);
+    assert.equal(hit?.id, "memory-1");
+    assert.deepEqual(seen, { containerTag: "test", contentHash: expectedHash });
+    assert.equal(await client.findActiveMemoryByContentHash("test", "missing"), null);
+  });
+
+  it("backfills hashes in batches and reports duplicate groups oldest first", async () => {
+    const queries: string[] = [];
+    let pending = 2;
+    const client = clientWithSession({
+      run: async (query, params) => {
+        queries.push(query);
+        if (query.includes("m.contentHash IS NULL")) {
+          if (pending === 0) return { records: [] };
+          pending = 0;
+          return { records: [
+            { get: (key: string) => ({ id: "a", containerTag: "test", content: "GTC" })[key] },
+            { get: (key: string) => ({ id: "b", containerTag: "test", content: "gtc " })[key] }
+          ] };
+        }
+        if (query.includes("SET m.contentHash = row.contentHash")) {
+          const rows = params.rows as { id: string; contentHash: string }[];
+          assert.deepEqual(rows.map((row) => row.contentHash), [memoryContentHash("test", "GTC"), memoryContentHash("test", "gtc ")]);
+          return { records: [{ get: () => rows.length }] };
+        }
+        if (query.includes("size(members) > 1")) {
+          assert.match(query, /ORDER BY m\.createdAt ASC/);
+          return { records: [{ get: (key: string) => ({
+            containerTag: "test", contentHash: expectedHash,
+            members: [{ id: "old", createdAt: "2026-01-01T00:00:00Z", content: "GTC", sourceDocId: "d1" }, { id: "new", createdAt: "2026-02-01T00:00:00Z", content: "gtc", sourceDocId: "d2" }]
+          })[key] }] };
+        }
+        throw new Error(`unexpected query: ${query}`);
+      },
+      close: async () => undefined
+    });
+    assert.deepEqual(await client.listMemoriesMissingContentHash(500), [
+      { id: "a", containerTag: "test", content: "GTC" }, { id: "b", containerTag: "test", content: "gtc " }
+    ]);
+    assert.equal(await client.setMemoryContentHashes([
+      { id: "a", contentHash: memoryContentHash("test", "GTC") }, { id: "b", contentHash: memoryContentHash("test", "gtc ") }
+    ]), 2);
+    assert.equal(await client.setMemoryContentHashes([]), 0);
+    const groups = await client.findDuplicateMemoryGroups();
+    assert.equal(groups.length, 1);
+    assert.deepEqual(groups[0]?.members.map((member) => member.id), ["old", "new"]);
+  });
+
+  it("retires duplicates reversibly and restores them by run", async () => {
+    const queries: Array<[string, Record<string, unknown>]> = [];
+    const client = clientWithSession({
+      run: async (query, params) => {
+        queries.push([query, params]);
+        return { records: [{ get: () => 2 }] };
+      },
+      close: async () => undefined
+    });
+    assert.equal(await client.retireDuplicateMemories({ canonicalId: "old", duplicateIds: ["new", "newer"], runId: "dedupe-2026-09-10" }), 2);
+    const [retireQuery, retireParams] = queries[0]!;
+    assert.match(retireQuery, /SET duplicate\.isLatest = false/);
+    assert.match(retireQuery, /duplicate\.dedupRunId = \$runId/);
+    assert.match(retireQuery, /MERGE \(duplicate\)-\[r:DUPLICATE_OF\]->\(canonical\)/);
+    assert.doesNotMatch(retireQuery, /DELETE/);
+    assert.deepEqual({ canonicalId: retireParams.canonicalId, duplicateIds: retireParams.duplicateIds, runId: retireParams.runId },
+      { canonicalId: "old", duplicateIds: ["new", "newer"], runId: "dedupe-2026-09-10" });
+    assert.equal(await client.retireDuplicateMemories({ canonicalId: "old", duplicateIds: [], runId: "x" }), 0);
+
+    assert.equal(await client.restoreRetiredDuplicates("dedupe-2026-09-10"), 2);
+    const [restoreQuery, restoreParams] = queries[1]!;
+    assert.match(restoreQuery, /MATCH \(m:Memory \{dedupRunId: \$runId\}\)/);
+    assert.match(restoreQuery, /SET m\.isLatest = true/);
+    assert.match(restoreQuery, /REMOVE m\.dedupRunId, m\.dedupCanonicalId, m\.dedupRetiredAt/);
+    assert.deepEqual(restoreParams, { runId: "dedupe-2026-09-10" });
+  });
+
+  it("returns document metadata as an object even when Neo4j stores a JSON string", async () => {
+    const document = (metadata: unknown) => ({
+      get: () => ({ properties: {
+        id: "document-1", title: "Doc", contentType: "text", rawContent: "x", containerTag: "test",
+        metadata, status: "done", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+      } })
+    });
+    const cases: Array<[unknown, Record<string, unknown>]> = [
+      ['{"temporal_class":"pricing","valid_to":"2026-12-31T00:00:00Z"}', { temporal_class: "pricing", valid_to: "2026-12-31T00:00:00Z" }],
+      ["{}", {}],
+      ["not json", {}],
+      [undefined, {}],
+      [{ already: "object" }, { already: "object" }]
+    ];
+    for (const [stored, expected] of cases) {
+      const client = clientWithSession({ run: async () => ({ records: [document(stored)] }), close: async () => undefined });
+      assert.deepEqual((await client.getDocument("document-1"))?.metadata, expected);
+    }
   });
 });

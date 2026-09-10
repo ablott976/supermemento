@@ -99,6 +99,12 @@ Montar un volumen dedicado en `/data`. El fichero OAuth se escribe de forma ató
 - El cliente descubre exactamente 18 tools, incluyendo las nueve ampliadas.
 - Comprobar anotaciones destructivas y open-world, y rechazo de URLs internas.
 
+Desde el 2026-09-10 el backend aplica la politica de memorias (`temporal_class`,
+`validTo` obligatorio para inteligencia con caducidad, deduplicacion exacta y
+proyeccion temporal en `semantic_search`, ver `MEMORY_POLICY.md`). El gateway
+no cambia: reenvia los esquemas del backend, sigue publicando 18 tools y basta
+con refrescar la definicion del conector para ver los parametros nuevos.
+
 La ampliacion requiere publicar primero el backend con las protecciones de URL
 y la herramienta de relaciones, y despues el gateway. No publicar solo el
 gateway contra un backend anterior. Conservar OAuth, volumenes y credenciales.

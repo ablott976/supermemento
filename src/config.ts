@@ -92,7 +92,10 @@ const envSchema = z
     LLM_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(180000),
     LLM_REASONING_EFFORT: z.enum(["low", "medium", "high"]).default("low"),
     COHERE_API_KEY: z.string().min(1).optional(),
-    COHERE_RERANK_MODEL: z.string().min(1).default("rerank-v3.5")
+    COHERE_RERANK_MODEL: z.string().min(1).default("rerank-v3.5"),
+    // Cosine similarity above which create_memory reports possible_duplicate candidates (never merges).
+    DEDUP_SEMANTIC_THRESHOLD: z.coerce.number().min(0).max(1).default(0.95),
+    DEDUP_SEMANTIC_LIMIT: z.coerce.number().int().min(1).max(10).default(3)
   })
   .superRefine((config, context) => {
     if (config.LLM_PROVIDER === "anthropic" && !config.ANTHROPIC_API_KEY) {
@@ -176,7 +179,9 @@ export function loadConfig(): AppConfig {
     LLM_REQUEST_TIMEOUT_MS: process.env.LLM_REQUEST_TIMEOUT_MS,
     LLM_REASONING_EFFORT: process.env.LLM_REASONING_EFFORT,
     COHERE_API_KEY: process.env.COHERE_API_KEY,
-    COHERE_RERANK_MODEL: process.env.COHERE_RERANK_MODEL
+    COHERE_RERANK_MODEL: process.env.COHERE_RERANK_MODEL,
+    DEDUP_SEMANTIC_THRESHOLD: process.env.DEDUP_SEMANTIC_THRESHOLD?.trim() || undefined,
+    DEDUP_SEMANTIC_LIMIT: process.env.DEDUP_SEMANTIC_LIMIT?.trim() || undefined
   });
 
   if (!parsed.success) {

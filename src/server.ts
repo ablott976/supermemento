@@ -23,7 +23,16 @@ import { ProfileService } from "./services/profiles/profile-service.js";
 import { RelationClassifierService } from "./services/relation-classifier.js";
 import { SearchService } from "./services/search/search-service.js";
 import { WebCrawlerConnector } from "./services/connectors/web-crawler.js";
-import { ContentType, DocumentStatus, MemoryType, RelationType } from "./types/index.js";
+import {
+  TEMPORAL_CLASSES,
+  VALID_TO_METADATA_KEY,
+  assertValidToForTemporalClass,
+  memoryContentHash,
+  resolveTemporalClass,
+  withTemporalClass,
+  type TemporalClass
+} from "./services/memory-policy.js";
+import { ContentType, DocumentStatus, MemoryType, RelationType, type Memory, type Metadata } from "./types/index.js";
 
 /** Accept both "YYYY-MM-DD" and full ISO datetime, normalising date-only to midnight UTC */
 const flexibleDatetime = z.string().transform((v) => {
@@ -31,6 +40,9 @@ const flexibleDatetime = z.string().transform((v) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
   return v;
 }).pipe(z.string().datetime()).optional();
+
+/** Declared by whoever creates the memory. Anything but "none" requires validTo (server-enforced). */
+const temporalClassSchema = z.enum(TEMPORAL_CLASSES).optional();
 
 const createMemoryArgsSchema = z.object({
   content: z.string().min(1),
@@ -40,7 +52,8 @@ const createMemoryArgsSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   confidence: z.number().min(0).max(1).default(0.9),
   validFrom: flexibleDatetime,
-  validTo: flexibleDatetime
+  validTo: flexibleDatetime,
+  temporal_class: temporalClassSchema
 });
 
 export const createMemoryInputSchema = zodToJsonSchema(createMemoryArgsSchema);
@@ -51,7 +64,8 @@ const batchMemoryItemSchema = z.object({
   memoryType: z.nativeEnum(MemoryType),
   confidence: z.number().min(0).max(1).default(0.9),
   validFrom: flexibleDatetime,
-  validTo: flexibleDatetime
+  validTo: flexibleDatetime,
+  temporal_class: temporalClassSchema
 });
 
 const batchCreateMemoriesArgsSchema = z.object({
@@ -84,19 +98,26 @@ const createDocumentArgsSchema = z.object({
   filePath: z.string().optional()
 });
 
+/** Ingestion tools share the memory policy: temporal_class plus the default validTo for extracted memories. */
+const ingestPolicyFields = {
+  metadata: z.record(z.unknown()).optional(),
+  temporal_class: temporalClassSchema,
+  validTo: flexibleDatetime
+};
+
 const ingestDocumentArgsSchema = z.object({
   content: z.string().min(1),
   contentType: z.nativeEnum(ContentType),
   containerTag: z.string().min(1),
   title: z.string().min(1).optional(),
-  metadata: z.record(z.unknown()).optional()
+  ...ingestPolicyFields
 });
 
 const ingestUrlArgsSchema = z.object({
   url: z.string().url(),
   containerTag: z.string().min(1),
   title: z.string().min(1).optional(),
-  metadata: z.record(z.unknown()).optional()
+  ...ingestPolicyFields
 });
 
 const ingestConversationArgsSchema = z.object({
@@ -108,7 +129,7 @@ const ingestConversationArgsSchema = z.object({
   ),
   containerTag: z.string().min(1),
   title: z.string().min(1).optional(),
-  metadata: z.record(z.unknown()).optional()
+  ...ingestPolicyFields
 });
 
 const getDocumentStatusArgsSchema = z.object({
@@ -184,12 +205,16 @@ const getUserProfileArgsSchema = z.object({
 
 const crawlUrlArgsSchema = z.object({
   url: z.string().url(),
-  containerTag: z.string().min(1)
+  containerTag: z.string().min(1),
+  temporal_class: temporalClassSchema,
+  validTo: flexibleDatetime
 });
 
 const crawlUrlsArgsSchema = z.object({
   urls: z.array(z.string().url()).min(1).max(20),
-  containerTag: z.string().min(1)
+  containerTag: z.string().min(1),
+  temporal_class: temporalClassSchema,
+  validTo: flexibleDatetime
 });
 
 const listCrawledUrlsArgsSchema = z.object({
@@ -203,6 +228,27 @@ function stripEmbedding(obj: Record<string, unknown>): Record<string, unknown> {
   return rest;
 }
 
+/**
+ * Resolves and validates the temporal policy of an ingestion/crawl call and returns the
+ * document metadata that carries it into the pipeline.
+ */
+function ingestionPolicyMetadata(input: {
+  metadata?: Metadata;
+  temporal_class?: TemporalClass;
+  validTo?: string;
+}): Metadata {
+  const temporalClass = resolveTemporalClass(input.temporal_class, input.metadata);
+  assertValidToForTemporalClass(temporalClass, input.validTo);
+  const metadata = withTemporalClass(input.metadata, temporalClass);
+  if (input.validTo) {
+    metadata[VALID_TO_METADATA_KEY] = input.validTo;
+  }
+  return metadata;
+}
+
+const DEFAULT_DEDUP_SEMANTIC_THRESHOLD = 0.95;
+const DEFAULT_DEDUP_SEMANTIC_LIMIT = 3;
+
 /** Supermemento MCP server implementation. */
 export class SupermementoServer {
   private readonly server: Server;
@@ -214,12 +260,16 @@ export class SupermementoServer {
   private readonly ingestionPipeline: IngestionPipeline;
   private readonly searchService: SearchService;
   private readonly profileService: ProfileService;
+  private readonly dedupSemanticThreshold: number;
+  private readonly dedupSemanticLimit: number;
 
   /**
    * Creates the MCP server and internal services.
    */
   public constructor() {
     const config = loadConfig();
+    this.dedupSemanticThreshold = config.DEDUP_SEMANTIC_THRESHOLD;
+    this.dedupSemanticLimit = config.DEDUP_SEMANTIC_LIMIT;
     this.neo4jClient = new Neo4jClient(config);
     this.embeddingService = new EmbeddingService(config);
     this.forgettingService = new ForgettingService(this.neo4jClient);
@@ -534,6 +584,55 @@ export class SupermementoServer {
     await this.neo4jClient.close();
   }
 
+  /**
+   * Returns the id of the per-container catch-all document for manual memories, creating it once.
+   * @param containerTag Container namespace.
+   */
+  private async resolveManualMemoriesDocument(containerTag: string): Promise<string> {
+    const catchAllTitle = "Manual memories: " + containerTag;
+    const existing = await this.neo4jClient.listDocuments({
+      containerTag,
+      status: DocumentStatus.Done,
+      limit: 200
+    });
+    const catchAll = existing.find((d) => d.title === catchAllTitle);
+    if (catchAll) {
+      return catchAll.id;
+    }
+    const newDoc = await this.neo4jClient.createDocument({
+      title: catchAllTitle,
+      contentType: ContentType.Text,
+      rawContent: "Auto-created for manual memories",
+      containerTag
+    });
+    await this.neo4jClient.updateDocument(newDoc.id, { status: DocumentStatus.Done });
+    return newDoc.id;
+  }
+
+  /**
+   * Semantic near-duplicate warning for human review. Never merges or blocks: it only reports
+   * active memories in the same container whose cosine similarity reaches the configured threshold.
+   * @param memory Memory just created (its own id is excluded).
+   */
+  private async findPossibleDuplicates(memory: Memory): Promise<Array<{ id: string; score: number; content: string }>> {
+    try {
+      const hits = await this.neo4jClient.semanticSearchMemoriesAdvanced({
+        embedding: memory.embedding,
+        containerTag: memory.containerTag,
+        minScore: this.dedupSemanticThreshold ?? DEFAULT_DEDUP_SEMANTIC_THRESHOLD,
+        limit: (this.dedupSemanticLimit ?? DEFAULT_DEDUP_SEMANTIC_LIMIT) + 1,
+        isLatestOnly: true
+      });
+      return hits
+        .filter((hit) => hit.memory.id !== memory.id)
+        .slice(0, this.dedupSemanticLimit ?? DEFAULT_DEDUP_SEMANTIC_LIMIT)
+        .map((hit) => ({ id: hit.memory.id, score: Number(hit.score.toFixed(4)), content: hit.memory.content }));
+    } catch (error) {
+      console.warn(`[supermemento] possible_duplicate check skipped for ${memory.id}:`, (error as Error).message);
+      return [];
+    }
+  }
+
   private registerHandlersOnServer(targetServer: Server): void {
     targetServer.setRequestHandler(ListToolsRequestSchema, async (): Promise<ListToolsResult> => ({
       tools: [
@@ -543,7 +642,11 @@ export class SupermementoServer {
             "Create a SINGLE Memory node. For 2+ memories use batch_create_memories instead — it is much faster. " +
             "sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag. " +
             "metadata is an optional JSON object stored on the memory. " +
-            "validFrom and validTo are optional and accept YYYY-MM-DD or an ISO datetime.",
+            "validFrom and validTo are optional and accept YYYY-MM-DD or an ISO datetime. " +
+            "temporal_class (pricing|roadmap|pipeline|none, default none) declares expiring intelligence: " +
+            "any class other than none REQUIRES validTo or the call is rejected. " +
+            "Exact duplicates (same containerTag and normalised content as an active memory) are not created: " +
+            "the response is {created:false, duplicateOf}. Near-duplicates are only reported as possibleDuplicates.",
           inputSchema: createMemoryInputSchema
         },
         {
@@ -553,7 +656,9 @@ export class SupermementoServer {
             "All memories share the same containerTag. Relation classification runs async in the background. " +
             "Use this whenever the user wants to save multiple facts, preferences, or episodes. " +
             "Each memory item has: content (required), memoryType (fact|preference|episode|derived), " +
-            "confidence (default 0.9), metadata (optional JSON object), validFrom (optional), validTo (optional).",
+            "confidence (default 0.9), metadata (optional JSON object), validFrom (optional), validTo (optional), " +
+            "temporal_class (pricing|roadmap|pipeline|none; any class other than none REQUIRES validTo). " +
+            "Exact duplicates inside the batch or against active memories are skipped and listed in duplicates[].",
           inputSchema: batchCreateMemoriesInputSchema
         },
         {
@@ -568,17 +673,17 @@ export class SupermementoServer {
         },
         {
           name: "ingest_document",
-          description: "Ingest through the extraction/chunking/memory/index pipeline. For pdf, content accepts base64 PDF bytes or a public HTTP(S) PDF URL. For url, content is a public HTTP(S) URL. For text, content is plain text or Markdown. URL downloads are size/time limited and cannot access private networks.",
+          description: "Ingest through the extraction/chunking/memory/index pipeline. For pdf, content accepts base64 PDF bytes or a public HTTP(S) PDF URL. For url, content is a public HTTP(S) URL. For text, content is plain text or Markdown. URL downloads are size/time limited and cannot access private networks. temporal_class (pricing|roadmap|pipeline|none) and validTo apply to every extracted memory: a class other than none requires validTo. Exact duplicates are not stored.",
           inputSchema: zodToJsonSchema(ingestDocumentArgsSchema)
         },
         {
           name: "ingest_url",
-          description: "Fetch URL content and run the full ingestion pipeline",
+          description: "Fetch URL content and run the full ingestion pipeline. temporal_class (pricing|roadmap|pipeline|none) and validTo apply to every extracted memory; a class other than none requires validTo. Exact duplicates are not stored.",
           inputSchema: zodToJsonSchema(ingestUrlArgsSchema)
         },
         {
           name: "ingest_conversation",
-          description: "Ingest conversation messages and run full pipeline",
+          description: "Ingest conversation messages and run full pipeline. temporal_class (pricing|roadmap|pipeline|none) and validTo apply to every extracted memory; a class other than none requires validTo. Exact duplicates are not stored.",
           inputSchema: zodToJsonSchema(ingestConversationArgsSchema)
         },
         {
@@ -652,12 +757,12 @@ export class SupermementoServer {
         },
         {
           name: "crawl_url",
-          description: "One-shot crawl of a URL and ingest if changed",
+          description: "One-shot crawl of a URL and ingest if changed. temporal_class (pricing|roadmap|pipeline|none) and validTo apply to every extracted memory; a class other than none requires validTo.",
           inputSchema: zodToJsonSchema(crawlUrlArgsSchema)
         },
         {
           name: "crawl_urls",
-          description: "Batch crawl multiple URLs and ingest changed content",
+          description: "Batch crawl multiple URLs and ingest changed content. temporal_class (pricing|roadmap|pipeline|none) and validTo apply to every extracted memory; a class other than none requires validTo.",
           inputSchema: zodToJsonSchema(crawlUrlsArgsSchema)
         },
         {
@@ -686,31 +791,23 @@ export class SupermementoServer {
         switch (name) {
           case "create_memory": {
             const input = createMemoryArgsSchema.parse(args);
-            let sourceDocId = input.sourceDocId;
-            if (!sourceDocId) {
-              const catchAllTitle = "Manual memories: " + input.containerTag;
-              const existing = await this.neo4jClient.listDocuments({
-                containerTag: input.containerTag,
-                status: DocumentStatus.Done,
-                limit: 200
+            // Policy first, before any write: temporal intelligence needs validTo; exact duplicates are not created.
+            const temporalClass = resolveTemporalClass(input.temporal_class, input.metadata);
+            assertValidToForTemporalClass(temporalClass, input.validTo);
+            const metadata = withTemporalClass(input.metadata, temporalClass);
+            const contentHash = memoryContentHash(input.containerTag, input.content);
+            const duplicate = await this.neo4jClient.findActiveMemoryByContentHash(input.containerTag, contentHash);
+            if (duplicate) {
+              return asJson({
+                created: false,
+                duplicateOf: duplicate.id,
+                memory: stripEmbedding(duplicate as unknown as Record<string, unknown>)
               });
-              const catchAll = existing.find((d) => d.title === catchAllTitle);
-              if (catchAll) {
-                sourceDocId = catchAll.id;
-              } else {
-                const newDoc = await this.neo4jClient.createDocument({
-                  title: catchAllTitle,
-                  contentType: ContentType.Text,
-                  rawContent: "Auto-created for manual memories",
-                  containerTag: input.containerTag
-                });
-                await this.neo4jClient.updateDocument(newDoc.id, { status: DocumentStatus.Done });
-                sourceDocId = newDoc.id;
-              }
             }
+            const sourceDocId = input.sourceDocId ?? await this.resolveManualMemoriesDocument(input.containerTag);
             const embedding = await this.embeddingService.generateEmbedding(input.content);
             const memory = await this.neo4jClient.createMemory({
-              metadata: input.metadata,
+              metadata,
               content: input.content,
               memoryType: input.memoryType,
               containerTag: input.containerTag,
@@ -724,66 +821,96 @@ export class SupermementoServer {
             this.relationClassifierService.classifyAndApply(memory)
               .then((r) => console.log(`[supermemento] Async relation done: ${memory.id}`, JSON.stringify(r)))
               .catch((e) => console.warn(`[supermemento] Async relation skipped:`, (e as Error).message));
+            const possibleDuplicates = await this.findPossibleDuplicates(memory);
             const { embedding: _emb, ...memoryClean } = memory;
-            return asJson({ memory: memoryClean, relationClassification: "async" });
+            return asJson({
+              created: true,
+              memory: memoryClean,
+              relationClassification: "async",
+              ...(possibleDuplicates.length > 0 ? { possibleDuplicates } : {})
+            });
           }
 
           case "batch_create_memories": {
             const input = batchCreateMemoriesArgsSchema.parse(args);
 
-            // 1. Resolve sourceDocId (catch-all document pattern)
-            let sourceDocId = input.sourceDocId;
-            if (!sourceDocId) {
-              const catchAllTitle = "Manual memories: " + input.containerTag;
-              const existing = await this.neo4jClient.listDocuments({
-                containerTag: input.containerTag,
-                status: DocumentStatus.Done,
-                limit: 200
-              });
-              const catchAll = existing.find((d) => d.title === catchAllTitle);
-              if (catchAll) {
-                sourceDocId = catchAll.id;
-              } else {
-                const newDoc = await this.neo4jClient.createDocument({
-                  title: catchAllTitle,
-                  contentType: ContentType.Text,
-                  rawContent: "Auto-created for manual memories",
-                  containerTag: input.containerTag
-                });
-                await this.neo4jClient.updateDocument(newDoc.id, { status: DocumentStatus.Done });
-                sourceDocId = newDoc.id;
+            // 1. Policy for every item before any write: the whole batch is rejected on the first invalid item.
+            const prepared = input.memories.map((m, index) => {
+              try {
+                const temporalClass = resolveTemporalClass(m.temporal_class, m.metadata);
+                assertValidToForTemporalClass(temporalClass, m.validTo);
+                return {
+                  ...m,
+                  index,
+                  metadata: withTemporalClass(m.metadata, temporalClass),
+                  contentHash: memoryContentHash(input.containerTag, m.content)
+                };
+              } catch (error) {
+                throw new Error(`memories[${index}]: ${(error as Error).message}`);
               }
+            });
+
+            // 2. Exact dedup: inside the batch (first occurrence wins) and against active memories.
+            const duplicates: Array<{ index: number; duplicateOf: string }> = [];
+            const pendingIntraBatch: Array<{ index: number; ownerIndex: number }> = [];
+            const ownerByHash = new Map<string, number>();
+            const toCreate: typeof prepared = [];
+            for (const item of prepared) {
+              const ownerIndex = ownerByHash.get(item.contentHash);
+              if (ownerIndex !== undefined) {
+                pendingIntraBatch.push({ index: item.index, ownerIndex });
+                continue;
+              }
+              const existing = await this.neo4jClient.findActiveMemoryByContentHash(input.containerTag, item.contentHash);
+              if (existing) {
+                duplicates.push({ index: item.index, duplicateOf: existing.id });
+                continue;
+              }
+              ownerByHash.set(item.contentHash, item.index);
+              toCreate.push(item);
             }
 
-            // 2. Batch embedding — 1 API call for all contents
-            const contents = input.memories.map((m) => m.content);
-            const embeddings = await this.embeddingService.generateEmbeddings(contents);
+            let createdMemories: Memory[] = [];
+            if (toCreate.length > 0) {
+              // 3. Resolve sourceDocId (catch-all document pattern) only when something will be written.
+              const sourceDocId = input.sourceDocId ?? await this.resolveManualMemoriesDocument(input.containerTag);
 
-            // 3. Batch create memories — 1 Neo4j UNWIND transaction
-            const memoryInputs = input.memories.map((m, i) => ({
-              metadata: m.metadata,
-              content: m.content,
-              memoryType: m.memoryType,
-              containerTag: input.containerTag,
-              confidence: m.confidence,
-              sourceDocId: sourceDocId!,
-              embedding: embeddings[i] ?? [],
-              validFrom: m.validFrom ?? null,
-              validTo: m.validTo ?? null
-            } as Parameters<typeof this.neo4jClient.batchCreateMemories>[0][number]));
-            const createdMemories = await this.neo4jClient.batchCreateMemories(memoryInputs);
+              // 4. Batch embedding — 1 API call for the memories that will be stored
+              const embeddings = await this.embeddingService.generateEmbeddings(toCreate.map((m) => m.content));
 
-            // 4. Batch relation classification — async fire-and-forget
-            this.relationClassifierService.batchClassifyAndApply(createdMemories)
-              .then(() => console.log(`[supermemento] Batch async relation done: ${createdMemories.length} memories`))
-              .catch((e) => console.warn(`[supermemento] Batch async relation skipped:`, (e as Error).message));
+              // 5. Batch create memories — 1 Neo4j UNWIND transaction
+              const memoryInputs = toCreate.map((m, i) => ({
+                metadata: m.metadata,
+                content: m.content,
+                memoryType: m.memoryType,
+                containerTag: input.containerTag,
+                confidence: m.confidence,
+                sourceDocId,
+                embedding: embeddings[i] ?? [],
+                validFrom: m.validFrom ?? null,
+                validTo: m.validTo ?? null
+              } as Parameters<typeof this.neo4jClient.batchCreateMemories>[0][number]));
+              createdMemories = await this.neo4jClient.batchCreateMemories(memoryInputs);
 
-            // 5. Return cleaned results (strip embedding vectors)
+              // 6. Batch relation classification — async fire-and-forget
+              this.relationClassifierService.batchClassifyAndApply(createdMemories)
+                .then(() => console.log(`[supermemento] Batch async relation done: ${createdMemories.length} memories`))
+                .catch((e) => console.warn(`[supermemento] Batch async relation skipped:`, (e as Error).message));
+            }
+
+            const createdIdByIndex = new Map(toCreate.map((item, i) => [item.index, createdMemories[i]?.id ?? ""]));
+            for (const pending of pendingIntraBatch) {
+              duplicates.push({ index: pending.index, duplicateOf: createdIdByIndex.get(pending.ownerIndex) ?? "" });
+            }
+            duplicates.sort((a, b) => a.index - b.index);
+
+            // 7. Return cleaned results (strip embedding vectors)
             const cleaned = createdMemories.map(({ embedding: _emb, ...rest }) => rest);
             return asJson({
               count: cleaned.length,
               memories: cleaned,
-              message: `${cleaned.length} memories created. Relation classification running in background.`
+              duplicates,
+              message: `${cleaned.length} memories created, ${duplicates.length} exact duplicates skipped. Relation classification running in background.`
             });
           }
 
@@ -809,12 +936,13 @@ export class SupermementoServer {
 
           case "ingest_document": {
             const input = ingestDocumentArgsSchema.parse(args);
+            const metadata = ingestionPolicyMetadata(input);
             const doc = await this.neo4jClient.createDocument({
               title: input.title ?? `Ingested ${input.contentType}`,
               contentType: input.contentType,
               rawContent: input.content,
               containerTag: input.containerTag,
-              metadata: input.metadata
+              metadata
             });
             this.ingestionPipeline.processDocument(doc.id)
               .then((r) => console.log(`[supermemento] Async ingest done: ${doc.id} chunks=${r.chunkCount} memories=${r.memoryCount}`))
@@ -827,13 +955,14 @@ export class SupermementoServer {
 
           case "ingest_url": {
             const input = ingestUrlArgsSchema.parse(args);
+            const metadata = ingestionPolicyMetadata(input);
             const doc = await this.neo4jClient.createDocument({
               title: input.title ?? input.url,
               contentType: ContentType.Url,
               rawContent: input.url,
               containerTag: input.containerTag,
               sourceUrl: input.url,
-              metadata: input.metadata
+              metadata
             });
             this.ingestionPipeline.processDocument(doc.id)
               .then((r) => console.log(`[supermemento] Async ingest_url done: ${doc.id} chunks=${r.chunkCount} memories=${r.memoryCount}`))
@@ -847,13 +976,14 @@ export class SupermementoServer {
 
           case "ingest_conversation": {
             const input = ingestConversationArgsSchema.parse(args);
+            const metadata = ingestionPolicyMetadata(input);
             const content = input.messages.map((m) => `${m.speaker}: ${m.message}`).join("\n");
             const doc = await this.neo4jClient.createDocument({
               title: input.title ?? "Conversation Ingestion",
               contentType: ContentType.Conversation,
               rawContent: content,
               containerTag: input.containerTag,
-              metadata: input.metadata
+              metadata
             });
             this.ingestionPipeline.processDocument(doc.id)
               .then((r) => console.log(`[supermemento] Async ingest_conversation done: ${doc.id} chunks=${r.chunkCount} memories=${r.memoryCount}`))
@@ -1015,7 +1145,8 @@ export class SupermementoServer {
               this.neo4jClient,
               this.ingestionPipeline,
               [input.url],
-              input.containerTag
+              input.containerTag,
+              ingestionPolicyMetadata(input)
             );
             const result = await connector.crawlUrl(input.url, input.containerTag);
             return asJson({ url: input.url, ...result });
@@ -1027,7 +1158,8 @@ export class SupermementoServer {
               this.neo4jClient,
               this.ingestionPipeline,
               input.urls,
-              input.containerTag
+              input.containerTag,
+              ingestionPolicyMetadata(input)
             );
             const result = await connector.crawlUrls(input.urls, input.containerTag);
             return asJson(result);

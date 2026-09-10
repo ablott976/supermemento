@@ -43,6 +43,19 @@ preserve it, or pass `{}` to clear it. Document metadata remains independent.
 After deployment, refresh the connector's MCP tool definitions so clients can
 discover the new optional parameter.
 
+### Memory policy: temporal_class, validTo and deduplication
+
+`temporal_class` (`pricing` | `roadmap` | `pipeline` | `none`, default `none`) is
+declared by whoever creates a memory, on `create_memory`, each item of
+`batch_create_memories` and the ingestion/crawl tools. Any class other than
+`none` requires `validTo`; the server rejects the call otherwise. Exact
+duplicates (same `containerTag` and normalised content as an active memory)
+are never created: the response is `{ created: false, duplicateOf }`. Semantic
+near-duplicates are only reported as `possibleDuplicates`. `semantic_search`
+returns `confidence`, `validFrom`, `validTo`, `isLatest` and `forgottenAt` on
+every memory result. Contract, ingestion rules and the reversible cleanup of
+historical duplicates: [docs/MEMORY_POLICY.md](docs/MEMORY_POLICY.md).
+
 - **Container Configuration**: Allows setting and retrieving container-level settings, such as filter prompts, to customize ingestion pipelines. This is managed via dedicated API endpoints.
 - **Text generation**: `LLM_PROVIDER=openai-codex-subscription` uses the official Codex SDK and a dedicated persistent `CODEX_HOME` authenticated with ChatGPT. `anthropic` and the legacy Hermes-backed `openai-codex` relay remain available for explicit rollback.
 - **Embeddings**: Continue to use the OpenAI embedding configuration independently of the text-generation provider.

@@ -24,6 +24,12 @@ export interface SearchResult {
   memoryType?: Memory["memoryType"];
   chunkIndex?: number;
   metadata?: Record<string, unknown>;
+  /** Memory results only: validity metadata so callers can check currency without a second call. */
+  confidence?: number;
+  validFrom?: string | null;
+  validTo?: string | null;
+  isLatest?: boolean;
+  forgottenAt?: string | null;
 }
 
 export interface SearchResponse {

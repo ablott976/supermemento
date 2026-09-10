@@ -80,7 +80,12 @@ export class SearchService {
         containerTag: hit.memory.containerTag,
         sourceDocId: hit.memory.sourceDocId,
         memoryType: hit.memory.memoryType,
-        metadata: hit.memory.metadata ?? {}
+        metadata: hit.memory.metadata ?? {},
+        confidence: hit.memory.confidence,
+        validFrom: hit.memory.validFrom ?? null,
+        validTo: hit.memory.validTo ?? null,
+        isLatest: hit.memory.isLatest,
+        forgottenAt: hit.memory.forgottenAt ?? null
       })),
       ...chunkResults.map((hit) => ({
         id: hit.chunk.id,
