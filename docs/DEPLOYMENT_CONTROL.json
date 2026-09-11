@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "domain": "zkteco",
+  "control_host": "linux",
+  "mechanism": "manual",
+  "entrypoint": "Manual desde Linux: git archive origin/main por SSH al VPS, docker build supermemento:<sha7>, docker service update n8n_supermemento (registro en docs/MEMORY_POLICY.md)",
+  "state_dir": null,
+  "runtime_host": "VPS Swarm/EasyPanel: n8n_supermemento, n8n_supermemento-chatgpt, Neo4j n8n_neo4j",
+  "schedule": "manual",
+  "status": "planned"
+}
