@@ -7,5 +7,5 @@
   "state_dir": null,
   "runtime_host": "VPS Swarm/EasyPanel: n8n_supermemento, n8n_supermemento-chatgpt, Neo4j n8n_neo4j",
   "schedule": "manual",
-  "status": "planned"
+  "status": "verified"
 }

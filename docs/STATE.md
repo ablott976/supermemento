@@ -19,8 +19,8 @@ aquí sólo va el estado. El detalle de cada rollout verificado va en
 | `[I]` | Inferido de nombres, rutas o configuración; plausible, no comprobado |
 | `[?]` | Desconocido; requiere comprobación en una máquina concreta |
 
-Última revisión completa: 2026-09-11 (lectura del repositorio y de GitHub desde
-el Mac; sin acceso al VPS en esta revisión).
+Última revisión completa: 2026-09-12 (lectura del repositorio y de GitHub, y
+lectura de solo lectura de los servicios del VPS ejecutada desde el Linux).
 
 ---
 
@@ -28,7 +28,7 @@ el Mac; sin acceso al VPS en esta revisión).
 
 | Rama | Papel | SHA en la revisión |
 |---|---|---|
-| `main` | Integración, rama por defecto y origen de cada imagen (`git archive origin/main`) | `4aa712b` `[V]` 2026-09-11 |
+| `main` | Integración, rama por defecto y origen de cada imagen (`git archive origin/main`) | `f2b5ced` `[V]` 2026-09-12 |
 
 - `[V]` 2026-09-11 Rama por defecto en GitHub: `main`. **Sin protección de rama**
   (`GET /branches/main/protection` → 404).
@@ -51,23 +51,30 @@ el Mac; sin acceso al VPS en esta revisión).
 | Neo4j | `n8n_neo4j`, bolt interno | Grafo con índices vectoriales; índices `memory_container_content_hash` y `memory_dedup_run` creados el 2026-09-10 | `[V]` rollout 2026-09-10 |
 | Copia del código en el VPS | `/etc/easypanel/projects/n8n/supermemento/code` | Copia **sin `.git`**; no es la fuente de las imágenes | `[V]` `MEMORY_POLICY.md` |
 | Datos | 15 093 memorias con hash (2026-09-10); 568 duplicados retirados (`dedupe-2026-09-10`); 8 467 memorias con vigencias normalizadas (`validity-2026-09-11`) | Ambas operaciones reversibles con `restore-*` | `[V]` `MEMORY_POLICY.md` |
-| Relay OAuth de Codex | `deploy/` (systemd `supermemento-codex-relay`, `-tunnel`) | Dónde está instalado y si sigue activo `[?]` | `[V]` ficheros en el repo |
+| Relay OAuth de Codex | Servicio Swarm `n8n_codex-oauth-bridge` en el VPS (imagen `supermemento-codex-bridge:76b10a9`, 2026-07-31) | **`0/1`, en bucle de reinicio** (exit 137, healthcheck): incidente 1 | `[V]` 2026-09-12 desde el Linux |
 
-`[?]` Que los servicios sigan hoy en esas imágenes no se ha comprobado en esta
-revisión; la última evidencia es la del rollout del 2026-09-11.
+`[V]` 2026-09-12 Comprobado desde el Linux (`docker service inspect`): backend en
+`supermemento:3d1275a` (actualizado 2026-09-11 09:14 UTC) y gateway en
+`supermemento-chatgpt:3f5846f`, ambos `1/1`. Coincide con el rollout del
+2026-09-11.
 
 ## 3. Incidentes abiertos
 
-Ninguno registrado `[V]` 2026-09-11. Los Issues abiertos #1–#29 son hallazgos
-de auditoría (`[PERF]`, `[DX]`, `[ROUTES]`) de 2026-02, sin incidente de
-runtime asociado.
+1. **`n8n_codex-oauth-bridge` en bucle de reinicio** — Issue #71 (2026-09-12).
+   `[V]` Réplicas `0/1`, cada tarea muere a los segundos con `exit 137:
+   unhealthy container`; el proceso llega a `Private TCP bridge ready`.
+   Pendiente decidir si el relay sigue haciendo falta tras la retirada de
+   Hermes (retirarlo) o corregir su healthcheck.
+
+Los Issues abiertos #1–#29 son hallazgos de auditoría (`[PERF]`, `[DX]`,
+`[ROUTES]`) de 2026-02, sin incidente de runtime asociado.
 
 ## 4. Cómo se despliega
 
 La asignación vive en [`DEPLOYMENT_CONTROL.json`](DEPLOYMENT_CONTROL.json):
 **ZKTeco → control de despliegue en Linux** (Arturo, 2026-09-11; antes, el
 2026-09-08, lo había declarado compartido con Linux como único host de
-control), `mechanism=manual`, `status=planned`.
+control), `mechanism=manual`, `status=verified`.
 
 - `[V]` Mecanismo del backend (rollouts 2026-09-10 y 2026-09-11): `git archive
   origin/main` enviado por SSH a `/tmp/supermemento-build-<sha>` en el VPS;
@@ -94,8 +101,13 @@ control), `mechanism=manual`, `status=planned`.
 - `[V]` **Desde qué máquina.** #63 registra un rollout verificado desde Linux
   (`ablott`, `ssh vps`) el 2026-09-07 (revisión `2e649ec`). Los rollouts del
   2026-09-10 y 2026-09-11 se ejecutaron **desde el Mac** con el mismo
-  mecanismo. Arturo indica (2026-09-11) que no sabe qué control existe hoy en
-  Linux: `status` se queda en `planned` hasta comprobarlo (pregunta abierta 1).
+  mecanismo. `[V]` 2026-09-12 Comprobado desde el Linux que la ruta sigue
+  operativa tras la retirada de Hermes: `ssh vps` con la clave
+  `linux_to_fleet`, `docker service ls/inspect` sobre los tres servicios,
+  clon `~/supermemento` presente (en una rama de feature; para desplegar se
+  usa `git archive origin/main`, no el clon). No hay CLI de EasyPanel en el
+  Linux ni en el VPS, y este mecanismo no lo necesita. Con ello el contrato
+  pasa a `verified`.
 - `[V]` Sin reconciliador, sin ledger, sin despliegues programados.
 
 ## 5. Riesgos y limitaciones conocidas
@@ -129,15 +141,16 @@ control), `mechanism=manual`, `status=planned`.
 | 2026-09-10 | Política de memorias MEM-01…MEM-04: `temporal_class` con `validTo` obligatorio, dedup exacta por `contentHash`, proyección temporal en `semantic_search` (#66); histórico deduplicado (`dedupe-2026-09-10`). |
 | 2026-09-11 | MEM-05: `validFrom`/`validTo` sin hora son días de negocio Europe/Madrid (#68); histórico normalizado (`validity-2026-09-11`). |
 | 2026-09-11 | Arturo confirma dominio **ZKTeco** (control Linux). Adopción de las convenciones de repositorio: `AGENTS.md`, `CLAUDE.md`, este documento y `DEPLOYMENT_CONTROL.json` con el esquema del validador. |
+| 2026-09-12 | Contrato a `status=verified`: ruta Linux → VPS comprobada y runtime coincidente con el rollout del 2026-09-11. |
 
 ## 7. Preguntas abiertas
 
 | # | Pregunta | Cómo se resuelve | Bloquea |
 |---|---|---|---|
-| 1 | ¿Qué control de despliegue existe hoy en Linux tras la retirada de Hermes? ¿Sigue funcionando `ssh vps` + `docker build` + `service update` desde `ablott`? | Un rollout (o un `docker service inspect` de lectura) ejecutado desde Linux y anotado en `MEMORY_POLICY.md`; entonces `status=verified`. | Pasar `status` a `verified` |
+| 1 | ~~¿Qué control existe hoy en Linux?~~ Resuelta el 2026-09-12: `ssh vps` + `docker` operativos desde el Linux (§4), `status=verified`. Queda: que el próximo rollout se ejecute desde el Linux y se anote en `MEMORY_POLICY.md`. | — | — |
 | 2 | ¿Se protege `main` (y con qué checks, si algún día hay CI)? | Decisión de Arturo; `gh api -X PUT .../branches/main/protection`. | Nada hoy |
 | 3 | ¿Qué se hace con el PR #63 (`domain: shared`, esquema no validable)? | Cerrarlo como sustituido por este PR, o fusionarlo primero y reconciliar aquí; decisión de Arturo. | Un solo contrato en `main` |
-| 4 | ¿Sigue activo el relay OAuth de Codex de `deploy/` y dónde? | Comprobar los units systemd en la máquina que los tenga; anotar en §2 o retirar `deploy/`. | Nada hoy |
+| 4 | ~~¿Sigue activo el relay OAuth de Codex?~~ Resuelta el 2026-09-12: es `n8n_codex-oauth-bridge` en el VPS y está en bucle de reinicio (incidente 1, #71). Queda decidir si se retira o se corrige. | Decisión de Arturo en #71. | Nada hoy; ruido en Swarm |
 
 ## 8. Documentos relacionados
 
