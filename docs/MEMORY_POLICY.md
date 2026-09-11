@@ -264,3 +264,39 @@ Batería de aceptación ejecutada por JSON-RPC directo al backend (contenedor
 
 Las dos memorias canary creadas en la verificación viven en
 `chatgpt-mcp-canary` y no afectan a `zkteco-pmm`.
+
+## Despliegue y verificación — 2026-09-11 (MEM-05)
+
+Commit 3d1275a (main, #68), mismo mecanismo: `git archive origin/main` a
+`/tmp/supermemento-build-3d1275a`, `docker build --label
+org.opencontainers.image.revision=3d1275a… -t supermemento:3d1275a`,
+`docker service update --no-resolve-image --image supermemento:3d1275a
+n8n_supermemento` (convergió en segundos, `/health` 200, versión 0.2.0,
+arranque limpio). Sin `BUSINESS_TIMEZONE` en el servicio: aplica el valor por
+defecto `Europe/Madrid`. El gateway no cambió; `/ready` y `/health` 200.
+
+Normalización del histórico dentro del contenedor:
+
+1. `normalize-validity-dates validity-2026-09-11` (informe, guardado en
+   `~/backups/supermemento/validity-2026-09-11-report.json` del VPS): 8 467
+   memorias, 8 426 `validFrom` y 1 606 `validTo` a las 00:00:00Z; los
+   instantes con hora se conservan en la muestra.
+2. `--apply`: 8 467 memorias reescritas (`validityRunId`,
+   `validityNormalizedAt`, `validityLegacyValidFrom`, `validityLegacyValidTo`);
+   resultado en `validity-2026-09-11-apply.json`. Segunda pasada: 0.
+3. Comprobación en Neo4j: 0 `validTo` a medianoche UTC; memorias con `validTo`
+   vigente pasan de 1 239 a 1 262 (23 se daban por caducadas antes de tiempo);
+   `9999-12-31T00:00:00Z` → `9999-12-31T22:59:59.999Z`. Reversible con
+   `restore-validity-dates validity-2026-09-11`.
+
+Aceptación por JSON-RPC directo al backend (contenedor `chatgpt-mcp-canary`):
+
+- `create_memory` con `temporal_class: pricing`, `validFrom: "2026-09-11"` y
+  `validTo: "2026-09-11"` → `validFrom: 2026-09-10T22:00:00.000Z`,
+  `validTo: 2026-09-11T21:59:59.999Z`; visible en `semantic_search` el mismo
+  día (antes habría caducado a las 02:00 de Madrid).
+- `update_memory` con `validTo: "2026-09-10"` → `2026-09-10T21:59:59.999Z` y
+  la memoria deja de aparecer en `semantic_search`.
+
+La memoria canary `5569cdfa-9eb6-4143-a6e0-6ffd0218e8dd` vive en
+`chatgpt-mcp-canary` y no afecta a `zkteco-pmm`.
