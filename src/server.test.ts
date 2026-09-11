@@ -166,7 +166,8 @@ describe("Memory metadata MCP requests", () => {
       } });
       assert.ok(!updated.isError);
       assert.deepEqual(received.at(-1)?.embedding, [0.1]);
-      assert.equal(received.at(-1)?.validTo, "2026-09-01T00:00:00Z");
+      // Date-only validTo is the end of that Europe/Madrid business day (CEST = UTC+2).
+      assert.equal(received.at(-1)?.validTo, "2026-09-01T21:59:59.999Z");
       assert.ok(!JSON.parse((updated.content as { text: string }[])[0]!.text).memory.embedding);
       assert.ok(!(await client.callTool({ name: "update_memory", arguments: { memoryId: sourceDocId, validTo: null } })).isError);
       assert.equal(received.at(-1)?.validTo, null);
@@ -255,7 +256,8 @@ describe("Memory policy: temporal_class, validTo and exact dedup", () => {
       assert.equal(result.isError, false, result.text);
       assert.equal(result.payload.created, true);
       assert.deepEqual(result.payload.memory.metadata, { source: "price-list", temporal_class: "pricing" });
-      assert.equal(fake.saved[0]?.validTo, "2026-12-31T00:00:00Z");
+      // Date-only validTo lasts until Madrid midnight (CET = UTC+1), not until midnight UTC.
+      assert.equal(fake.saved[0]?.validTo, "2026-12-31T22:59:59.999Z");
       assert.equal(result.payload.relationClassification, "async");
       assert.equal("possibleDuplicates" in result.payload, false);
       const none = await fake.call("create_memory", { ...base, content: "Hecho permanente" });
@@ -381,7 +383,7 @@ describe("Memory policy: temporal_class, validTo and exact dedup", () => {
         temporal_class: "pricing", validTo: "2026-12-31", metadata: { origin: "flyer" }
       });
       assert.equal(accepted.isError, false, accepted.text);
-      assert.deepEqual(fake.documents[0]?.metadata, { origin: "flyer", temporal_class: "pricing", valid_to: "2026-12-31T00:00:00Z" });
+      assert.deepEqual(fake.documents[0]?.metadata, { origin: "flyer", temporal_class: "pricing", valid_to: "2026-12-31T22:59:59.999Z" });
 
       const plain = await fake.call("ingest_conversation", { messages: [{ speaker: "a", message: "hola" }], containerTag: "test" });
       assert.equal(plain.isError, false, plain.text);

@@ -120,6 +120,23 @@ describe("IngestionPipeline memory policy", () => {
     assert.deepEqual(final, { temporal_class: "pricing", valid_to: "2026-12-31T00:00:00Z", memories_created: 2, memories_duplicate: 1, memories_rejected: 0 });
   });
 
+  it("normalises date-only validity from the extractor and the document to Europe/Madrid business days", async () => {
+    const { result, created } = await run(
+      { temporal_class: "pricing", valid_to: "2026-09-11" },
+      [
+        { content: "Precio hereda el día del documento", memoryType: "fact", confidence: 0.9, validFrom: "2026-09-01", validTo: null },
+        { content: "Precio con día propio", memoryType: "fact", confidence: 0.9, validFrom: null, validTo: "2026-01-10" },
+        { content: "Precio con instante propio", memoryType: "fact", confidence: 0.9, validFrom: "2026-09-01T10:00:00Z", validTo: "2026-09-11T08:00:00Z" }
+      ]
+    );
+    assert.equal(result.memoryCount, 3);
+    assert.deepEqual(created.map((memory) => [memory.validFrom, memory.validTo]), [
+      ["2026-08-31T22:00:00.000Z", "2026-09-11T21:59:59.999Z"],  // CEST: day starts 22:00Z the day before, ends 21:59:59.999Z
+      [undefined, "2026-01-10T22:59:59.999Z"],                     // CET: ends 22:59:59.999Z
+      ["2026-09-01T10:00:00Z", "2026-09-11T08:00:00Z"]              // full instants pass through unchanged
+    ]);
+  });
+
   it("rejects every temporal memory when neither the memory nor the document has validTo", async () => {
     const { result, created, embeddingCalls } = await run(
       { temporal_class: "roadmap" },

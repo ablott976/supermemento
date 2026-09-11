@@ -443,6 +443,37 @@ describe("Exact dedup support in Neo4jClient", () => {
     assert.equal(derivedMemory.contentHash, memoryContentHash("test", "Hecho derivado"));
   });
 
+  it("lists midnight-UTC validity memories not yet normalised, pages by id and writes reversible changes", async () => {
+    const queries: string[] = [];
+    let seen: Record<string, unknown> = {};
+    const row = (columns: Record<string, unknown>) => ({ get: (key: string) => columns[key] });
+    const client = clientWithSession({
+      run: async (query, params) => {
+        queries.push(query);
+        seen = params;
+        if (query.includes("RETURN m.id AS id, m.validFrom AS validFrom, m.validTo AS validTo")) {
+          return { records: [row({ id: "m-1", validFrom: null, validTo: new Date("2026-09-11T00:00:00Z") })] };
+        }
+        return { records: [row({ count: 1 })] };
+      },
+      close: async () => undefined
+    });
+    const listed = await client.listMidnightValidityMemories(10, "m-0");
+    assert.deepEqual(listed, [{ id: "m-1", validFrom: null, validTo: "2026-09-11T00:00:00.000Z" }]);
+    assert.match(queries[0]!, /m\.validityRunId IS NULL AND m\.id > \$afterId/);
+    assert.match(queries[0]!, /m\.validTo\.hour = 0 AND m\.validTo\.minute = 0 AND m\.validTo\.second = 0 AND m\.validTo\.nanosecond = 0/);
+    assert.equal(seen.afterId, "m-0");
+    assert.equal(await client.setValidityDates([{ id: "m-1", validFrom: null, validTo: "2026-09-11T21:59:59.999Z" }], "validity-1"), 1);
+    assert.match(queries[1]!, /m\.validityLegacyValidFrom = m\.validFrom/);
+    assert.match(queries[1]!, /m\.validityLegacyValidTo = m\.validTo/);
+    assert.match(queries[1]!, /WHERE m\.validityRunId IS NULL/);
+    assert.equal(seen.runId, "validity-1");
+    assert.equal(await client.setValidityDates([], "validity-1"), 0, "no query for an empty batch");
+    assert.equal(await client.restoreValidityDates("validity-1"), 1);
+    assert.match(queries[2]!, /SET m\.validFrom = m\.validityLegacyValidFrom/);
+    assert.match(queries[2]!, /REMOVE m\.validityRunId, m\.validityNormalizedAt, m\.validityLegacyValidFrom, m\.validityLegacyValidTo/);
+  });
+
   it("looks up only active memories by container and hash", async () => {
     let seen: Record<string, unknown> = {};
     const client = clientWithSession({

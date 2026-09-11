@@ -53,7 +53,9 @@ duplicates (same `containerTag` and normalised content as an active memory)
 are never created: the response is `{ created: false, duplicateOf }`. Semantic
 near-duplicates are only reported as `possibleDuplicates`. `semantic_search`
 returns `confidence`, `validFrom`, `validTo`, `isLatest` and `forgottenAt` on
-every memory result. Contract, ingestion rules and the reversible cleanup of
+every memory result. A date-only `validFrom`/`validTo` is a Europe/Madrid
+business day (`BUSINESS_TIMEZONE`): `validFrom` starts at 00:00 local and
+`validTo` lasts until 23:59:59.999 local, never midnight UTC. Contract, ingestion rules and the reversible cleanup of
 historical duplicates: [docs/MEMORY_POLICY.md](docs/MEMORY_POLICY.md).
 
 - **Container Configuration**: Allows setting and retrieving container-level settings, such as filter prompts, to customize ingestion pipelines. This is managed via dedicated API endpoints.
