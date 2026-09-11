@@ -120,6 +120,47 @@ como objeto. `crawl_url` y `crawl_urls` guardan `temporal_class` y `valid_to`
 en cada documento que ingieren; la deduplicación de documentos por
 `contentHash` de página que ya existía se mantiene.
 
+## MEM-05: fechas de vigencia como días de negocio (Europe/Madrid)
+
+`[V]` 2026-09-11. Mismo criterio que la corrección de zona horaria de PMM Tasks.
+
+El backend y Neo4j corren en UTC. Hasta ahora una fecha sin hora
+(`validTo: "2026-09-11"`) se normalizaba a `2026-09-11T00:00:00Z` y la
+vigencia se decide con `m.validTo >= datetime()`, así que una memoria que
+«caduca el 11/09» dejaba de estar vigente a las 02:00 de Madrid de ese día
+(01:00 en invierno): durante casi todo su último día de vigencia se
+consideraba caducada. Es el mismo fallo que el de PMM Tasks, con signo
+contrario.
+
+Regla desde el 2026-09-11 (`src/services/business-time.ts`, único sitio donde
+se declara la zona; `BUSINESS_TIMEZONE`, por defecto `Europe/Madrid`):
+
+| Valor | Interpretación | Ejemplo (verano, CEST) |
+|---|---|---|
+| `validFrom: "YYYY-MM-DD"` | inicio de ese día en Madrid, 00:00:00 local | `2026-09-11` → `2026-09-10T22:00:00.000Z` |
+| `validTo: "YYYY-MM-DD"` | fin de ese día en Madrid, 23:59:59.999 local | `2026-09-11` → `2026-09-11T21:59:59.999Z` |
+| ISO datetime completo | sin cambios | `2026-09-11T08:00:00Z` |
+
+Se aplica en todas las entradas: `create_memory`, `batch_create_memories`,
+`update_memory`, el `validTo` de documento en `ingest_*` y `crawl_*`
+(`metadata.valid_to` queda ya normalizado) y las fechas que propone el
+extractor LLM para cada memoria (`pipeline.applyMemoryPolicy`), que antes
+llegaban a Neo4j sin pasar por ninguna normalización. La comparación en
+Cypher (`m.validTo >= datetime()`) no cambia: compara instantes.
+
+Las memorias guardadas antes de esta fecha llevan el `validTo` (y a menudo el
+`validFrom`) a medianoche UTC: el extractor y las tools solo producían fechas
+sin hora, así que ese instante significa «ese día». Se normalizan con el
+comando reversible `normalize-validity-dates` (ver «Limpieza del histórico»):
+`validFrom` al inicio y `validTo` al fin del día en Madrid; cualquier valor
+que no esté exactamente a las 00:00:00Z se conserva.
+
+Pruebas (`src/services/business-time.test.ts`, `server.test.ts`,
+`pipeline.test.ts`): verano e invierno, ambos cambios de hora de 2026,
+paso sin cambios de instantes completos, y la comprobación de que una memoria
+que caduca hoy sigue vigente a las 00:36 de Madrid y caduca a las 00:00 del
+día siguiente.
+
 ## Contrato resultante por tool
 
 | Tool | Parámetros nuevos | Respuesta |
@@ -142,6 +183,9 @@ contenedor con las variables de entorno del servicio):
 | `dedupe-history <runId>` | Informe (sin escribir) de los grupos de memorias vigentes que comparten `containerTag` y `contentHash` |
 | `dedupe-history <runId> --apply` | Conserva como canónica la más antigua de cada grupo y retira el resto: `isLatest = false`, `dedupRunId`, `dedupCanonicalId`, `dedupRetiredAt` y relación `DUPLICATE_OF` hacia la canónica. No borra nada |
 | `restore-dedupe <runId>` | Deshace la retirada de ese run: `isLatest = true`, elimina marcas y relaciones |
+| `normalize-validity-dates <runId>` | Informe (sin escribir) de las memorias con `validFrom` o `validTo` a las 00:00:00Z exactas y aún sin normalizar: recuento y muestra de antes/después (MEM-05) |
+| `normalize-validity-dates <runId> --apply` | Reescribe esas fechas como día de negocio en Madrid (`validFrom` 00:00 local, `validTo` 23:59:59.999 local) guardando en el nodo `validityRunId`, `validityNormalizedAt`, `validityLegacyValidFrom` y `validityLegacyValidTo`. Lotes de 500; una memoria ya marcada no se vuelve a tocar |
+| `restore-validity-dates <runId>` | Restaura los valores previos de ese run y elimina las marcas |
 
 Después del despliegue hay que ejecutar `setup_schema` (o `npm run
 setup:schema`) para crear los índices `memory_container_content_hash` y
@@ -153,6 +197,9 @@ setup:schema`) para crear los índices `memory_container_content_hash` y
 |---|---|---|
 | `DEDUP_SEMANTIC_THRESHOLD` | `0.95` | Similitud coseno mínima para avisar de `possibleDuplicates` |
 | `DEDUP_SEMANTIC_LIMIT` | `3` | Máximo de candidatos en el aviso |
+
+`BUSINESS_TIMEZONE` (por defecto `Europe/Madrid`): zona IANA en la que se
+interpretan las fechas de vigencia sin hora (MEM-05).
 
 ## Batería de aceptación
 

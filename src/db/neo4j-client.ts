@@ -731,6 +731,102 @@ export class Neo4jClient {
   }
 
   /**
+   * Lists memories whose validFrom or validTo is stored at exactly midnight UTC and that no
+   * validity normalisation run has touched yet (MEM-05). Ordered by id so callers can page.
+   * @param limit Batch size.
+   * @param afterId Page cursor: only ids greater than this one.
+   */
+  public async listMidnightValidityMemories(
+    limit: number,
+    afterId = ""
+  ): Promise<Array<{ id: string; validFrom: string | null; validTo: string | null }>> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory)
+        WHERE m.validityRunId IS NULL AND m.id > $afterId
+          AND (
+            (m.validTo IS NOT NULL AND m.validTo.hour = 0 AND m.validTo.minute = 0 AND m.validTo.second = 0 AND m.validTo.nanosecond = 0)
+            OR (m.validFrom IS NOT NULL AND m.validFrom.hour = 0 AND m.validFrom.minute = 0 AND m.validFrom.second = 0 AND m.validFrom.nanosecond = 0)
+          )
+        RETURN m.id AS id, m.validFrom AS validFrom, m.validTo AS validTo
+        ORDER BY m.id ASC
+        LIMIT $limit
+        `,
+        { limit: neo4j.int(limit), afterId }
+      );
+      return result.records.map((record) => ({
+        id: String(record.get("id")),
+        validFrom: this.toNullableIsoString(record.get("validFrom")),
+        validTo: this.toNullableIsoString(record.get("validTo"))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Rewrites validFrom/validTo of the given memories, keeping the previous values on the node
+   * (validityLegacyValidFrom / validityLegacyValidTo) together with the run marker so the change
+   * can be undone with restoreValidityDates. Nothing else on the node changes.
+   * @param rows New ISO values per memory id.
+   * @param runId Operational run identifier.
+   */
+  public async setValidityDates(
+    rows: Array<{ id: string; validFrom: string | null; validTo: string | null }>,
+    runId: string
+  ): Promise<number> {
+    if (rows.length === 0) {
+      return 0;
+    }
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        UNWIND $rows AS row
+        MATCH (m:Memory {id: row.id})
+        WHERE m.validityRunId IS NULL
+        SET m.validityRunId = $runId,
+            m.validityNormalizedAt = datetime($normalizedAt),
+            m.validityLegacyValidFrom = m.validFrom,
+            m.validityLegacyValidTo = m.validTo,
+            m.validFrom = CASE WHEN row.validFrom IS NULL THEN NULL ELSE datetime(row.validFrom) END,
+            m.validTo = CASE WHEN row.validTo IS NULL THEN NULL ELSE datetime(row.validTo) END
+        RETURN count(m) AS count
+        `,
+        { rows, runId, normalizedAt: new Date().toISOString() }
+      );
+      return Number(result.records[0]?.get("count") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Undoes setValidityDates for one run: restores the legacy values and removes the markers.
+   * @param runId Run identifier used when normalising.
+   */
+  public async restoreValidityDates(runId: string): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:Memory {validityRunId: $runId})
+        SET m.validFrom = m.validityLegacyValidFrom,
+            m.validTo = m.validityLegacyValidTo
+        REMOVE m.validityRunId, m.validityNormalizedAt, m.validityLegacyValidFrom, m.validityLegacyValidTo
+        RETURN count(m) AS count
+        `,
+        { runId }
+      );
+      return Number(result.records[0]?.get("count") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Groups active memories that share containerTag and contentHash. Members are
    * ordered oldest first so the first one is the canonical memory.
    */

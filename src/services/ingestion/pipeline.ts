@@ -1,4 +1,5 @@
 import { Neo4jClient } from "../../db/neo4j-client.js";
+import { normalizeValidFrom, normalizeValidTo } from "../business-time.js";
 import { ContentType, DocumentStatus } from "../../types/enums.js";
 import type { Document, Metadata } from "../../types/models.js";
 import { EmbeddingService } from "../embedding.js";
@@ -227,7 +228,9 @@ export class IngestionPipeline {
     let rejectedCount = 0;
 
     for (const extracted of extractedMemories) {
-      const validTo = extracted.validTo ?? policy.validTo;
+      // Date-only values from the extractor or the document policy are business days (Europe/Madrid), not midnight UTC.
+      const validTo = normalizeValidTo(extracted.validTo ?? policy.validTo);
+      const validFrom = normalizeValidFrom(extracted.validFrom);
       if (policy.temporalClass !== "none" && !validTo) {
         rejectedCount += 1;
         console.warn(
@@ -251,6 +254,7 @@ export class IngestionPipeline {
       seenHashes.add(contentHash);
       accepted.push({
         ...extracted,
+        validFrom,
         validTo,
         metadata: withTemporalClass(undefined, policy.temporalClass)
       });

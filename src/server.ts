@@ -32,14 +32,15 @@ import {
   withTemporalClass,
   type TemporalClass
 } from "./services/memory-policy.js";
+import { normalizeValidFrom, normalizeValidTo } from "./services/business-time.js";
 import { ContentType, DocumentStatus, MemoryType, RelationType, type Memory, type Metadata } from "./types/index.js";
 
-/** Accept both "YYYY-MM-DD" and full ISO datetime, normalising date-only to midnight UTC */
-const flexibleDatetime = z.string().transform((v) => {
-  if (!v) return v;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v + "T00:00:00Z";
-  return v;
-}).pipe(z.string().datetime()).optional();
+/**
+ * Accept both "YYYY-MM-DD" and a full ISO datetime. A date-only validFrom is the start of that
+ * business day and a date-only validTo its end, both in BUSINESS_TIMEZONE (see business-time.ts).
+ */
+const flexibleValidFrom = z.string().transform((v) => normalizeValidFrom(v)).pipe(z.string().datetime()).optional();
+const flexibleValidTo = z.string().transform((v) => normalizeValidTo(v)).pipe(z.string().datetime()).optional();
 
 /** Declared by whoever creates the memory. Anything but "none" requires validTo (server-enforced). */
 const temporalClassSchema = z.enum(TEMPORAL_CLASSES).optional();
@@ -51,8 +52,8 @@ const createMemoryArgsSchema = z.object({
   sourceDocId: z.string().uuid().optional(),
   metadata: z.record(z.unknown()).optional(),
   confidence: z.number().min(0).max(1).default(0.9),
-  validFrom: flexibleDatetime,
-  validTo: flexibleDatetime,
+  validFrom: flexibleValidFrom,
+  validTo: flexibleValidTo,
   temporal_class: temporalClassSchema
 });
 
@@ -63,8 +64,8 @@ const batchMemoryItemSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   memoryType: z.nativeEnum(MemoryType),
   confidence: z.number().min(0).max(1).default(0.9),
-  validFrom: flexibleDatetime,
-  validTo: flexibleDatetime,
+  validFrom: flexibleValidFrom,
+  validTo: flexibleValidTo,
   temporal_class: temporalClassSchema
 });
 
@@ -102,7 +103,7 @@ const createDocumentArgsSchema = z.object({
 const ingestPolicyFields = {
   metadata: z.record(z.unknown()).optional(),
   temporal_class: temporalClassSchema,
-  validTo: flexibleDatetime
+  validTo: flexibleValidTo
 };
 
 const ingestDocumentArgsSchema = z.object({
@@ -172,9 +173,9 @@ const updateMemoryArgsSchema = z.object({
   memoryType: z.nativeEnum(MemoryType).optional(),
   isLatest: z.boolean().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  validFrom: flexibleDatetime.unwrap().nullable().optional(),
-  validTo: flexibleDatetime.unwrap().nullable().optional(),
-  forgottenAt: flexibleDatetime.unwrap().nullable().optional()
+  validFrom: flexibleValidFrom.unwrap().nullable().optional(),
+  validTo: flexibleValidTo.unwrap().nullable().optional(),
+  forgottenAt: flexibleValidFrom.unwrap().nullable().optional()
 });
 
 export const updateMemoryInputSchema = zodToJsonSchema(updateMemoryArgsSchema);
@@ -207,14 +208,14 @@ const crawlUrlArgsSchema = z.object({
   url: z.string().url(),
   containerTag: z.string().min(1),
   temporal_class: temporalClassSchema,
-  validTo: flexibleDatetime
+  validTo: flexibleValidTo
 });
 
 const crawlUrlsArgsSchema = z.object({
   urls: z.array(z.string().url()).min(1).max(20),
   containerTag: z.string().min(1),
   temporal_class: temporalClassSchema,
-  validTo: flexibleDatetime
+  validTo: flexibleValidTo
 });
 
 const listCrawledUrlsArgsSchema = z.object({
@@ -642,7 +643,7 @@ export class SupermementoServer {
             "Create a SINGLE Memory node. For 2+ memories use batch_create_memories instead — it is much faster. " +
             "sourceDocId is optional - if omitted, a catch-all document is auto-created for the containerTag. " +
             "metadata is an optional JSON object stored on the memory. " +
-            "validFrom and validTo are optional and accept YYYY-MM-DD or an ISO datetime. " +
+            "validFrom and validTo are optional and accept YYYY-MM-DD or an ISO datetime; a date without time is a Europe/Madrid business day (validFrom starts at 00:00, validTo lasts until 23:59:59). " +
             "temporal_class (pricing|roadmap|pipeline|none, default none) declares expiring intelligence: " +
             "any class other than none REQUIRES validTo or the call is rejected. " +
             "Exact duplicates (same containerTag and normalised content as an active memory) are not created: " +

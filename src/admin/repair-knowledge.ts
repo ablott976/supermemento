@@ -5,12 +5,16 @@ import { ForgettingService } from "../services/forgetting.js";
 import { IngestionPipeline } from "../services/ingestion/pipeline.js";
 import { MemoryExtractorService } from "../services/ingestion/memory-extractor.js";
 import { memoryContentHash } from "../services/memory-policy.js";
+import { planStoredValidityNormalization } from "../services/business-time.js";
 import { RelationClassifierService } from "../services/relation-classifier.js";
 
 const USAGE =
   "Usage: repair-knowledge reclassify-memory <uuid> | reprocess-document <uuid> <repairId> | " +
-  "backfill-content-hashes | dedupe-history <runId> [--apply] | restore-dedupe <runId>";
+  "backfill-content-hashes | dedupe-history <runId> [--apply] | restore-dedupe <runId> | " +
+  "normalize-validity-dates <runId> [--apply] | restore-validity-dates <runId>";
 const BACKFILL_BATCH_SIZE = 500;
+const VALIDITY_BATCH_SIZE = 500;
+const VALIDITY_SAMPLE_SIZE = 20;
 const RUN_ID_PATTERN = /^[a-z0-9._:-]{3,80}$/i;
 
 function requireUuid(value: string | undefined, label: string): string {
@@ -93,6 +97,56 @@ async function dedupeHistory(neo4jClient: Neo4jClient, runId: string, apply: boo
   };
 }
 
+/**
+ * Reversible normalisation of validity dates stored before MEM-05 (date-only values that
+ * became midnight UTC): validFrom moves to the start and validTo to the end of that day in the
+ * business timezone. The previous values stay on each node under the run marker. Without
+ * --apply it only counts and samples what would change.
+ */
+export async function normalizeValidityDates(neo4jClient: Pick<Neo4jClient, "listMidnightValidityMemories" | "setValidityDates">, runId: string, apply: boolean): Promise<{
+  runId: string;
+  applied: boolean;
+  scanned: number;
+  planned: number;
+  validFromChanges: number;
+  validToChanges: number;
+  updated: number;
+  sample: Array<{ id: string; before: { validFrom: string | null; validTo: string | null }; after: { validFrom: string | null; validTo: string | null } }>;
+}> {
+  let scanned = 0;
+  let planned = 0;
+  let validFromChanges = 0;
+  let validToChanges = 0;
+  let updated = 0;
+  const sample: Array<{ id: string; before: { validFrom: string | null; validTo: string | null }; after: { validFrom: string | null; validTo: string | null } }> = [];
+  let afterId = "";
+  for (;;) {
+    const batch = await neo4jClient.listMidnightValidityMemories(VALIDITY_BATCH_SIZE, afterId);
+    if (batch.length === 0) {
+      break;
+    }
+    scanned += batch.length;
+    afterId = batch[batch.length - 1]!.id;
+    const rows: Array<{ id: string; validFrom: string | null; validTo: string | null }> = [];
+    for (const memory of batch) {
+      const before = { validFrom: memory.validFrom, validTo: memory.validTo };
+      const after = planStoredValidityNormalization(before);
+      if (!after) {
+        continue;
+      }
+      planned += 1;
+      if (after.validFrom !== before.validFrom) validFromChanges += 1;
+      if (after.validTo !== before.validTo) validToChanges += 1;
+      if (sample.length < VALIDITY_SAMPLE_SIZE) sample.push({ id: memory.id, before, after });
+      rows.push({ id: memory.id, ...after });
+    }
+    if (apply) {
+      updated += await neo4jClient.setValidityDates(rows, runId);
+    }
+  }
+  return { runId, applied: apply, scanned, planned, validFromChanges, validToChanges, updated, sample };
+}
+
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const config = loadConfig();
@@ -110,6 +164,21 @@ async function main(): Promise<void> {
       const apply = rest.includes("--apply");
       const result = await dedupeHistory(neo4jClient, runId, apply);
       console.log(JSON.stringify({ command, ...result }));
+      return;
+    }
+
+    if (command === "normalize-validity-dates") {
+      const runId = requireRunId(rest[0], "runId");
+      const apply = rest.includes("--apply");
+      const result = await normalizeValidityDates(neo4jClient, runId, apply);
+      console.log(JSON.stringify({ command, ...result }));
+      return;
+    }
+
+    if (command === "restore-validity-dates") {
+      const runId = requireRunId(rest[0], "runId");
+      const restored = await neo4jClient.restoreValidityDates(runId);
+      console.log(JSON.stringify({ command, runId, restored }));
       return;
     }
 
@@ -185,7 +254,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(`[repair-knowledge] ${(error as Error).message}`);
-  process.exit(1);
-});
+if (process.argv[1] && /repair-knowledge\.[cm]?[jt]s$/.test(process.argv[1])) {
+  main().catch((error) => {
+    console.error(`[repair-knowledge] ${(error as Error).message}`);
+    process.exit(1);
+  });
+}

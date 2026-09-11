@@ -95,7 +95,9 @@ const envSchema = z
     COHERE_RERANK_MODEL: z.string().min(1).default("rerank-v3.5"),
     // Cosine similarity above which create_memory reports possible_duplicate candidates (never merges).
     DEDUP_SEMANTIC_THRESHOLD: z.coerce.number().min(0).max(1).default(0.95),
-    DEDUP_SEMANTIC_LIMIT: z.coerce.number().int().min(1).max(10).default(3)
+    DEDUP_SEMANTIC_LIMIT: z.coerce.number().int().min(1).max(10).default(3),
+    /** IANA zone of date-only validFrom/validTo values; consumed by services/business-time.ts. */
+    BUSINESS_TIMEZONE: z.string().min(1).default("Europe/Madrid")
   })
   .superRefine((config, context) => {
     if (config.LLM_PROVIDER === "anthropic" && !config.ANTHROPIC_API_KEY) {
