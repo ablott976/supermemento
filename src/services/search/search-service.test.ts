@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { setImmediate } from "node:timers/promises";
 
 import type { AppConfig } from "../../config.js";
 import type { Neo4jClient } from "../../db/neo4j-client.js";
@@ -7,6 +8,70 @@ import type { EmbeddingService } from "../embedding.js";
 import type { TextGenerationClient } from "../llm/text-generation-client.js";
 import { QueryRewriterService } from "./query-rewriter.js";
 import { SearchService } from "./search-service.js";
+
+describe("SearchService retrieval concurrency", () => {
+  const config = { ANTHROPIC_API_KEY: "test" } as AppConfig;
+  for (const searchMode of ["hybrid", undefined] as const) {
+    it(`starts both searches before either finishes in ${searchMode ?? "default"} mode`, async () => {
+      const started: string[] = [];
+      let releaseMemories!: () => void;
+      const memoryGate = new Promise<void>((resolve) => { releaseMemories = resolve; });
+      let releaseChunks!: () => void;
+      const chunkGate = new Promise<void>((resolve) => { releaseChunks = resolve; });
+      const neo4jClient = {
+        semanticSearchMemoriesAdvanced: async () => {
+          started.push("memory");
+          await memoryGate;
+          return [];
+        },
+        semanticSearchChunks: async () => {
+          started.push("chunk");
+          await chunkGate;
+          return [];
+        }
+      } as unknown as Neo4jClient;
+      const embeddingService = {
+        generateEmbedding: async () => [0.1, 0.2]
+      } as unknown as EmbeddingService;
+      const service = new SearchService(config, neo4jClient, embeddingService);
+      let finished = false;
+      const search = service.search({ query: "fact", searchMode }).then((response) => {
+        finished = true;
+        return response;
+      });
+
+      try {
+        await setImmediate();
+        assert.deepEqual([...started], ["memory", "chunk"]);
+        releaseChunks();
+        await setImmediate();
+        assert.equal(finished, false, "search must wait for memory results too");
+      } finally {
+        releaseMemories();
+        releaseChunks();
+        await search;
+      }
+      assert.deepEqual((await search).results, []);
+    });
+  }
+
+  for (const searchMode of ["memory", "rag"] as const) {
+    it(`only queries the selected source in ${searchMode} mode`, async () => {
+      const started: string[] = [];
+      const neo4jClient = {
+        semanticSearchMemoriesAdvanced: async () => { started.push("memory"); return []; },
+        semanticSearchChunks: async () => { started.push("chunk"); return []; }
+      } as unknown as Neo4jClient;
+      const embeddingService = {
+        generateEmbedding: async () => [0.1, 0.2]
+      } as unknown as EmbeddingService;
+      const service = new SearchService(config, neo4jClient, embeddingService);
+
+      assert.deepEqual((await service.search({ query: "fact", searchMode })).results, []);
+      assert.deepEqual(started, [searchMode === "memory" ? "memory" : "chunk"]);
+    });
+  }
+});
 
 describe("SearchService query rewrite fallback", () => {
   it("includes memory metadata in memory and hybrid search results", async () => {
