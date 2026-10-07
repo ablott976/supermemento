@@ -24,6 +24,26 @@ function baseEnvironment(): void {
   });
 }
 
+describe("Neo4j memory page size configuration", () => {
+  it("defaults to 500 and accepts a positive integer override", () => {
+    baseEnvironment();
+    process.env.ANTHROPIC_API_KEY = "anthropic-key";
+    delete process.env.NEO4J_MEMORY_PAGE_SIZE;
+    assert.equal(loadConfig().NEO4J_MEMORY_PAGE_SIZE, 500);
+    process.env.NEO4J_MEMORY_PAGE_SIZE = "3";
+    assert.equal(loadConfig().NEO4J_MEMORY_PAGE_SIZE, 3);
+  });
+
+  it("rejects invalid page sizes", () => {
+    baseEnvironment();
+    process.env.ANTHROPIC_API_KEY = "anthropic-key";
+    for (const value of ["0", "-1", "1.5", "invalid", "Infinity", "9007199254740992"]) {
+      process.env.NEO4J_MEMORY_PAGE_SIZE = value;
+      assert.throws(() => loadConfig(), /Invalid environment configuration/);
+    }
+  });
+});
+
 describe("LLM environment configuration", () => {
   it("keeps Anthropic as the backwards-compatible default", () => {
     baseEnvironment();
