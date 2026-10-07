@@ -13,11 +13,11 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ## Core Concepts
 
-| Concept | Description |
-|---------|-------------|
-| **Document** | Raw content ingested (PDF, URL, text, audio, etc.) |
-| **Memory** | Atomic fact extracted from a Document with embeddings and temporal metadata |
-| **Relations** | Intelligent links between memories: UPDATES, EXTENDS, DERIVES |
+| Concept       | Description                                                                 |
+| ------------- | --------------------------------------------------------------------------- |
+| **Document**  | Raw content ingested (PDF, URL, text, audio, etc.)                          |
+| **Memory**    | Atomic fact extracted from a Document with embeddings and temporal metadata |
+| **Relations** | Intelligent links between memories: UPDATES, EXTENDS, DERIVES               |
 
 ## Phases
 
@@ -72,6 +72,35 @@ See [Codex subscription deployment](docs/OPENAI_CODEX_SUBSCRIPTION.md) for authe
 - 💰 **~$20/month** estimated operational cost
 
 ## Getting Started
+
+Install dependencies, including development tools, before compiling:
+
+```sh
+npm ci
+npm run build
+```
+
+The build uses the project's local TypeScript compiler, so it requires installed
+development dependencies. Use `npm install` when intentionally updating dependencies.
+
+Development commands:
+
+- `npm run typecheck` checks TypeScript without emitting build files.
+- `npm run lint` runs ESLint.
+- `npm test` (or `npm run test:ts`) runs the TypeScript tests.
+- `npm run test:python` runs the gateway's Python tests after installing
+  `chatgpt_gateway/requirements.lock` and `pytest` in your Python environment.
+- `npm run format` applies Prettier to supported files, excluding ignored files.
+- `npm run format:check` reports formatting differences without changing files.
+
+For a focused change, format only the files you edit, for example:
+
+```sh
+npm exec prettier -- --write src/config.ts
+```
+
+Python formatting is outside Prettier's scope. Existing files may have formatting
+differences; check those before running a repository-wide format command.
 
 See [docs/SPEC.md](docs/SPEC.md) for the complete development specification.
 
