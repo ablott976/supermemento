@@ -127,7 +127,7 @@ describe("Memory metadata persistence", () => {
 
   it("reads legacy memories without metadata without a migration", async () => {
     const client = clientWithSession({
-      run: async () => ({ records: [record(undefined)] }),
+      run: async () => ({ records: [{ get: () => record(undefined).get().properties }] }),
       close: async () => undefined
     });
     assert.deepEqual((await client.listMemories({}))[0]?.metadata, {});

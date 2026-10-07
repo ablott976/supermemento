@@ -174,14 +174,14 @@ export class Neo4jClient {
   }
 
   /**
-   * Lists documents filtered by container tag and optional status.
+   * Lists document metadata, excluding raw content, with optional filters.
    * @param params Listing filters.
    */
   public async listDocuments(params: {
     containerTag?: string;
     status?: DocumentStatus;
     limit?: number;
-  }): Promise<Document[]> {
+  }): Promise<Omit<Document, "rawContent">[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
@@ -189,7 +189,10 @@ export class Neo4jClient {
         MATCH (d:Document)
         WHERE ($containerTag IS NULL OR d.containerTag = $containerTag)
           AND ($status IS NULL OR d.status = $status)
-        RETURN d
+        RETURN d {
+          .id, .title, .contentType, .sourceUrl, .filePath, .containerTag,
+          .metadata, .status, .createdAt, .updatedAt
+        } AS d
         ORDER BY d.createdAt DESC
         LIMIT $limit
         `,
@@ -200,7 +203,7 @@ export class Neo4jClient {
         }
       );
 
-      return result.records.map((record) => this.mapDocument(record.get("d")));
+      return result.records.map((record) => this.mapDocumentSummary(this.coerceRecord(record.get("d"))));
     } finally {
       await session.close();
     }
@@ -1020,7 +1023,7 @@ export class Neo4jClient {
   }
 
   /**
-   * Lists memories with optional filters.
+   * Lists memories without embeddings, with optional filters.
    * @param params Query filters.
    */
   public async listMemories(params: {
@@ -1028,7 +1031,7 @@ export class Neo4jClient {
     memoryType?: MemoryType;
     isLatest?: boolean;
     limit?: number;
-  }): Promise<Memory[]> {
+  }): Promise<Omit<Memory, "embedding">[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
@@ -1037,7 +1040,11 @@ export class Neo4jClient {
         WHERE ($containerTag IS NULL OR m.containerTag = $containerTag)
           AND ($isLatest IS NULL OR m.isLatest = $isLatest)
           AND ($memoryType IS NULL OR m.memoryType = $memoryType)
-        RETURN m
+        RETURN m {
+          .id, .metadata, .content, .memoryType, .containerTag, .isLatest,
+          .confidence, .originalConfidence, .validFrom, .validTo, .forgottenAt,
+          .createdAt, .sourceDocId, .contentHash
+        } AS m
         ORDER BY m.createdAt DESC
         LIMIT $limit
         `,
@@ -1049,7 +1056,7 @@ export class Neo4jClient {
         }
       );
 
-      return result.records.map((record) => this.mapMemory(record.get("m")));
+      return result.records.map((record) => this.mapMemorySummary(this.coerceRecord(record.get("m"))));
     } finally {
       await session.close();
     }
@@ -1796,11 +1803,14 @@ export class Neo4jClient {
 
   private mapDocument(nodeValue: unknown): Document {
     const props = this.nodeProps(nodeValue);
+    return { ...this.mapDocumentSummary(props), rawContent: String(props.rawContent) };
+  }
+
+  private mapDocumentSummary(props: Record<string, unknown>): Omit<Document, "rawContent"> {
     return {
       id: String(props.id),
       title: String(props.title),
       contentType: props.contentType as Document["contentType"],
-      rawContent: String(props.rawContent),
       sourceUrl: this.nullableString(props.sourceUrl),
       filePath: this.nullableString(props.filePath),
       containerTag: String(props.containerTag),
@@ -1825,6 +1835,10 @@ export class Neo4jClient {
 
   private mapMemory(nodeValue: unknown): Memory {
     const props = this.nodeProps(nodeValue);
+    return { ...this.mapMemorySummary(props), embedding: (props.embedding as number[]) ?? [] };
+  }
+
+  private mapMemorySummary(props: Record<string, unknown>): Omit<Memory, "embedding"> {
     return {
       id: String(props.id),
       metadata: typeof props.metadata === "string"
@@ -1839,7 +1853,6 @@ export class Neo4jClient {
         props.originalConfidence === null || props.originalConfidence === undefined
           ? null
           : Number(props.originalConfidence),
-      embedding: (props.embedding as number[]) ?? [],
       validFrom: this.toNullableIsoString(props.validFrom),
       validTo: this.toNullableIsoString(props.validTo),
       forgottenAt: this.toNullableIsoString(props.forgottenAt),

@@ -1039,9 +1039,7 @@ export class SupermementoServer {
           case "list_memories": {
             const input = listMemoriesArgsSchema.parse(args);
             const memories = await this.neo4jClient.listMemories(input);
-            // Strip embeddings to avoid huge responses (3072 floats per memory)
-            const cleaned = memories.map(({ embedding, ...rest }) => rest);
-            return asJson({ count: cleaned.length, memories: cleaned });
+            return asJson({ count: memories.length, memories });
           }
 
           case "delete_memory": {
