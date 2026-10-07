@@ -30,6 +30,13 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ## Configuration
 
+### Compact lists
+
+`list_memories` returns memory fields without embeddings. `list_documents`
+returns document metadata without `rawContent`; use `get_document` to retrieve
+the full content. Both lists project only these fields in Neo4j, before transfer
+to the server, and retain their filters, newest-first ordering and limits.
+
 ### Memory metadata
 
 `create_memory` accepts an optional `metadata` JSON object. `batch_create_memories`
