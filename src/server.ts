@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -34,6 +35,9 @@ import {
 } from "./services/memory-policy.js";
 import { normalizeValidFrom, normalizeValidTo } from "./services/business-time.js";
 import { ContentType, DocumentStatus, MemoryType, RelationType, type Memory, type Metadata } from "./types/index.js";
+
+// Resolve from this module so both src/ and compiled dist/ use the root package.
+const { version: serverVersion } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 /**
  * Accept both "YYYY-MM-DD" and a full ISO datetime. A date-only validFrom is the start of that
@@ -293,7 +297,7 @@ export class SupermementoServer {
     this.server = new Server(
       {
         name: "supermemento-mcp",
-        version: "0.2.0"
+        version: serverVersion
       },
       {
         capabilities: {
@@ -357,7 +361,7 @@ export class SupermementoServer {
       // Health check
       if (url.pathname === "/health" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", version: "0.2.0", transports: ["sse", "streamable-http"] }));
+        res.end(JSON.stringify({ status: "ok", version: serverVersion, transports: ["sse", "streamable-http"] }));
         return;
       }
 
@@ -402,7 +406,7 @@ export class SupermementoServer {
 
               // Each Streamable HTTP session gets its own Server instance
               const sessionServer = new Server(
-                { name: "supermemento-mcp", version: "0.2.0" },
+                { name: "supermemento-mcp", version: serverVersion },
                 { capabilities: { tools: {} } }
               );
               this.registerHandlersOnServer(sessionServer);
@@ -476,7 +480,7 @@ export class SupermementoServer {
           };
 
           const sessionServer = new Server(
-            { name: "supermemento-mcp", version: "0.2.0" },
+            { name: "supermemento-mcp", version: serverVersion },
             { capabilities: { tools: {} } }
           );
           this.registerHandlersOnServer(sessionServer);

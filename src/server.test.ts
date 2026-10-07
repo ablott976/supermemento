@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -7,6 +8,42 @@ import { batchCreateMemoriesInputSchema, createMemoryInputSchema, SupermementoSe
 import { memoryContentHash } from "./services/memory-policy.js";
 
 const CATCH_ALL = { id: "d54b705e-06d9-4fc9-8a60-b45e306ef1c7", title: "Manual memories: test", containerTag: "test" };
+
+it("reports the package version during MCP initialization", async () => {
+  const originalEnvironment = { ...process.env };
+  let app: SupermementoServer;
+  try {
+    Object.assign(process.env, {
+      NEO4J_URI: "bolt://127.0.0.1:7687",
+      NEO4J_USER: "test",
+      NEO4J_PASSWORD: "test-password",
+      OPENAI_API_KEY: "test-embedding-key",
+      LLM_PROVIDER: "anthropic",
+      ANTHROPIC_API_KEY: "test-anthropic-key"
+    });
+    app = new SupermementoServer();
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnvironment)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnvironment);
+  }
+
+  // Exercise the real server's initialization without database or LLM requests.
+  const server = (app as unknown as { server: Server }).server;
+  const client = new Client({ name: "version-test-client", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    assert.equal(client.getServerVersion()?.version, packageJson.version);
+  } finally {
+    await client.close();
+    await server.close();
+    await app.close();
+  }
+});
 
 /** Wires the real MCP handlers to in-memory fakes; no embeddings, LLM or Neo4j. */
 async function connectFakeServer(overrides: Record<string, unknown> = {}, saved: Record<string, unknown>[] = []) {
