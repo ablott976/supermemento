@@ -73,7 +73,99 @@ See [Codex subscription deployment](docs/OPENAI_CODEX_SUBSCRIPTION.md) for authe
 
 ## Getting Started
 
-See [docs/SPEC.md](docs/SPEC.md) for the complete development specification.
+These steps run the TypeScript MCP server locally with a dedicated development
+Neo4j database. Use Node.js 22.13+ (the Docker image uses Node 22), npm, and Docker
+with Docker Compose. The default text provider also requires an Anthropic API key;
+embeddings require an OpenAI API key regardless of the text provider.
+
+### 1. Install dependencies
+
+From the repository root:
+
+```sh
+npm ci
+cp .env.example .env
+```
+
+`npm ci` installs the versions in `package-lock.json`. Use `npm install` when
+intentionally updating dependencies.
+
+### 2. Configure the environment
+
+Edit `.env` before starting anything:
+
+| Variable | Local development value |
+|----------|-------------------------|
+| `NEO4J_URI` | `bolt://localhost:7687` (the example's `neo4j` hostname is for Docker networking) |
+| `NEO4J_USER` | `neo4j` |
+| `NEO4J_PASSWORD` | Choose a local password; Compose uses the same value to initialize Neo4j |
+| `OPENAI_API_KEY` | Your OpenAI API key for embeddings |
+| `OPENAI_EMBEDDING_MODEL` | Keep `text-embedding-3-large`; the schema uses 3072-dimensional vector indexes |
+| `LLM_PROVIDER` | Keep `anthropic` for this walkthrough |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key for text generation |
+
+Add `MCP_HOST=127.0.0.1` to bind the local server to loopback. `PORT=8080` is
+already in the example; `MCP_PORT` overrides it if set. Gateway settings are for
+the separate ChatGPT service and are not needed here. For other text providers,
+see the [Codex subscription guide](docs/OPENAI_CODEX_SUBSCRIPTION.md) or the
+[legacy relay guide](docs/OPENAI_CODEX_OAUTH.md).
+
+The npm scripts read the process environment; they do **not** load `.env`
+automatically. In a POSIX-compatible shell (bash or zsh), export the edited file:
+
+```sh
+set -a
+. ./.env
+set +a
+```
+
+Repeat this in each new terminal used for schema setup or the server, and after
+editing `.env`. Quote values containing shell-special characters. `.env` is
+ignored by Git; keep API keys and passwords out of commits and logs.
+
+### 3. Start Neo4j and initialize the schema
+
+```sh
+docker compose up -d neo4j
+docker compose logs -f neo4j
+```
+
+Wait for Neo4j's `Started.` message, then stop following logs with Ctrl+C (the
+database stays running). Neo4j Browser is at `http://localhost:7474`; Bolt is on
+port 7687. Compose keeps database data in a named volume, so changing the password
+in `.env` does not reset an already initialized database's password.
+
+With the environment exported in the same terminal, run:
+
+```sh
+npm run setup:schema
+```
+
+This creates the constraints, regular indexes, and `memory_embeddings` /
+`chunk_embeddings` vector indexes. It is safe to rerun: existing schema objects
+are retained. Use only your local development database for this walkthrough.
+
+### 4. Run the development server
+
+```sh
+npm run dev
+```
+
+This runs `src/index.ts` through `tsx`; restart it after code changes. The default
+HTTP transport exposes Streamable HTTP at `http://127.0.0.1:8080/mcp` and SSE at
+`http://127.0.0.1:8080/sse`. In another terminal, check startup with:
+
+```sh
+curl --fail http://127.0.0.1:8080/health
+```
+
+Expect a JSON response with `status: "ok"`. This checks HTTP startup; it does not
+exercise ingestion or the external AI providers. Set `MCP_TRANSPORT=stdio` when
+launching from a client that uses stdio instead of HTTP. Stop the server with
+Ctrl+C, and stop the local database with `docker compose stop neo4j`.
+
+See [docs/SPEC.md](docs/SPEC.md) for the development specification and historical
+architecture plan. n8n is not required for this local server setup.
 
 ## License
 
