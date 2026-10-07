@@ -64,18 +64,6 @@ export class WebCrawlerConnector extends BaseConnector {
   }
 
   /**
-   * Crawls every configured URL and ingests only changed content.
-   */
-  public async crawl(): Promise<{
-    crawled: number;
-    ingested: number;
-    skipped: number;
-    results: Array<{ url: string; status: "ingested" | "skipped"; documentId?: string }>;
-  }> {
-    return this.crawlUrls(this.urls, this.containerTag);
-  }
-
-  /**
    * Crawls one URL and ingests if changed.
    * @param url URL to crawl.
    * @param containerTag Target container.
