@@ -1,0 +1,6 @@
+# Generated files and dependency lockfiles; .gitignore also applies.
+dist/
+build/
+coverage/
+package-lock.json
+chatgpt_gateway/requirements.lock
