@@ -77,6 +77,7 @@ const envSchema = z
     NEO4J_URI: z.string().min(1),
     NEO4J_USER: z.string().min(1),
     NEO4J_PASSWORD: z.string().min(1),
+    NEO4J_MEMORY_PAGE_SIZE: z.coerce.number().int().positive().safe().default(500),
     OPENAI_API_KEY: z.string().min(1),
     OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-large"),
     LLM_PROVIDER: z
@@ -166,6 +167,7 @@ export function loadConfig(): AppConfig {
     NEO4J_URI: process.env.NEO4J_URI,
     NEO4J_USER: process.env.NEO4J_USER,
     NEO4J_PASSWORD: process.env.NEO4J_PASSWORD,
+    NEO4J_MEMORY_PAGE_SIZE: process.env.NEO4J_MEMORY_PAGE_SIZE?.trim() || undefined,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_EMBEDDING_MODEL: process.env.OPENAI_EMBEDDING_MODEL,
     LLM_PROVIDER: process.env.LLM_PROVIDER,

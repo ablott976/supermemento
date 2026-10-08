@@ -1,4 +1,4 @@
-import neo4j, { Driver, Integer } from "neo4j-driver";
+import neo4j, { Driver, Integer, type QueryResult } from "neo4j-driver";
 import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import type { AppConfig } from "../config.js";
 import { memoryContentHash } from "../services/memory-policy.js";
@@ -69,12 +69,14 @@ const DERIVED_MEMORY_ID_NAMESPACE = "6f95d7ad-e62f-4c43-b74a-b722f8394d97";
 /** Neo4j data access layer for Documents, Memories, and relations. */
 export class Neo4jClient {
   private readonly driver: Driver;
+  private readonly memoryPageSize: number;
 
   /**
    * Creates a new Neo4j client from runtime config.
    * @param config Parsed application configuration.
    */
   public constructor(config: AppConfig) {
+    this.memoryPageSize = config.NEO4J_MEMORY_PAGE_SIZE;
     this.driver = neo4j.driver(
       config.NEO4J_URI,
       neo4j.auth.basic(config.NEO4J_USER, config.NEO4J_PASSWORD)
@@ -1483,24 +1485,43 @@ export class Neo4jClient {
   }
 
   /**
-   * Gets latest active memories for a container.
+   * Gets all latest active memories for a container using bounded queries.
    * @param containerTag Container tag.
    */
   public async getLatestMemoriesByContainer(containerTag: string): Promise<Memory[]> {
     const session = this.driver.session();
+    const memories: Memory[] = [];
+    let cursorCreatedAt: unknown = null;
+    let cursorId: string | null = null;
     try {
-      const result = await session.run(
-        `
-        MATCH (m:Memory {containerTag: $containerTag})
-        WHERE m.isLatest = true
-          AND m.forgottenAt IS NULL
-        RETURN m
-        ORDER BY m.createdAt DESC
-        `,
-        { containerTag }
-      );
+      while (true) {
+        const result: QueryResult = await session.run(
+          `
+          MATCH (m:Memory {containerTag: $containerTag})
+          WHERE m.isLatest = true
+            AND m.forgottenAt IS NULL
+            AND ($cursorId IS NULL
+              OR m.createdAt < $cursorCreatedAt
+              OR (m.createdAt = $cursorCreatedAt AND m.id > $cursorId))
+          RETURN m
+          ORDER BY m.createdAt DESC, m.id ASC
+          LIMIT $pageSize
+          `,
+          { containerTag, cursorCreatedAt, cursorId, pageSize: neo4j.int(this.memoryPageSize) }
+        );
 
-      return result.records.map((record) => this.mapMemory(record.get("m")));
+        for (const record of result.records) {
+          memories.push(this.mapMemory(record.get("m")));
+        }
+        if (result.records.length < this.memoryPageSize) {
+          return memories;
+        }
+
+        const lastMemory = result.records.at(-1)?.get("m").properties;
+        // Keep the native Neo4j timestamp so the cursor retains nanosecond precision.
+        cursorCreatedAt = lastMemory.createdAt;
+        cursorId = lastMemory.id;
+      }
     } finally {
       await session.close();
     }
