@@ -14,6 +14,7 @@ import type {
   Profile
 } from "../types/models.js";
 
+/** Source content and container for a new queued document, with optional metadata and source location. */
 type DocumentCreateInput = {
   title: string;
   contentType: Document["contentType"];
@@ -24,6 +25,7 @@ type DocumentCreateInput = {
   filePath?: string | null;
 };
 
+/** Mutable document fields; omitted fields stay unchanged and metadata may be an object or JSON string. */
 type DocumentUpdateInput = {
   title?: string;
   rawContent?: string;
@@ -31,6 +33,10 @@ type DocumentUpdateInput = {
   status?: DocumentStatus;
 };
 
+/**
+ * Memory content, classification, confidence and embedding linked to a source document and container.
+ * Optional validFrom/validTo are datetime strings; null or omission leaves the corresponding date unset.
+ */
 type MemoryCreateInput = {
   metadata?: Metadata;
   content: string;
@@ -43,6 +49,7 @@ type MemoryCreateInput = {
   validTo?: string | null;
 };
 
+/** Mutable memory fields; omitted fields stay unchanged, while null clears a validity or forgetting date. */
 type MemoryUpdateInput = {
   metadata?: Metadata;
   content?: string;
@@ -55,6 +62,7 @@ type MemoryUpdateInput = {
   forgottenAt?: string | null;
 };
 
+/** Chunk content, embedding and position linked to a source document and container, with optional metadata. */
 type ChunkCreateInput = {
   content: string;
   embedding: number[];
@@ -83,6 +91,7 @@ export class Neo4jClient {
 
   /**
    * Ensures the database connection is valid.
+   * @returns Resolves when the driver verifies connectivity; rejects on connection failure.
    */
   public async verifyConnectivity(): Promise<void> {
     await this.driver.verifyConnectivity();
@@ -90,6 +99,7 @@ export class Neo4jClient {
 
   /**
    * Returns the underlying driver for low-level operations.
+   * @returns Shared Neo4j driver owned by this client.
    */
   public getDriver(): Driver {
     return this.driver;
@@ -97,6 +107,7 @@ export class Neo4jClient {
 
   /**
    * Closes the Neo4j driver.
+   * @returns Resolves after the driver has closed its connections.
    */
   public async close(): Promise<void> {
     await this.driver.close();
@@ -154,6 +165,7 @@ export class Neo4jClient {
   /**
    * Returns a document by id.
    * @param documentId Document identifier.
+   * @returns Matching document, or null when the id does not exist.
    */
   public async getDocument(documentId: string): Promise<Document | null> {
     const session = this.driver.session();
@@ -175,7 +187,8 @@ export class Neo4jClient {
 
   /**
    * Lists documents filtered by container tag and optional status.
-   * @param params Listing filters.
+   * @param params Optional container, status and maximum result count.
+   * @returns Matching documents ordered newest first, capped by the limit (default 50).
    */
   public async listDocuments(params: {
     containerTag?: string;
@@ -210,6 +223,7 @@ export class Neo4jClient {
    * Updates mutable document fields.
    * @param documentId Document identifier.
    * @param input Partial document payload.
+   * @returns Updated document, or null when the id does not exist.
    */
   public async updateDocument(
     documentId: string,
@@ -251,8 +265,10 @@ export class Neo4jClient {
 
   /**
    * Removes generated artifacts before safely reprocessing an existing document.
-   * Refuses to continue when extracted memories already exist.
+   * Refuses a new repair when extracted memories already exist; retries clean up prior artifacts.
    * @param documentId Document identifier.
+   * @param repairId Repair run identifier used to claim ownership and allow retries.
+   * @returns Claimed document and counts of deleted chunks and memories for this repair attempt.
    */
   public async prepareDocumentForReprocessing(
     documentId: string,
@@ -363,7 +379,12 @@ export class Neo4jClient {
     }
   }
 
-  /** Clears a successful document repair claim. */
+  /**
+   * Clears a successful document repair claim and its preserved EXTENDS markers.
+   * @param documentId Document identifier.
+   * @param repairId Repair run that owns the claim.
+   * @returns Resolves after cleanup; rejects if the matching claim is absent.
+   */
   public async completeDocumentReprocessing(documentId: string, repairId: string): Promise<void> {
     const session = this.driver.session();
     try {
@@ -386,7 +407,12 @@ export class Neo4jClient {
     }
   }
 
-  /** Releases a failed repair lease while retaining its retry ownership. */
+  /**
+   * Releases a failed repair lease while retaining its retry ownership.
+   * @param documentId Document identifier.
+   * @param repairId Repair run that owns the claim.
+   * @returns Resolves after expiring the lease, including when no matching claim exists.
+   */
   public async releaseDocumentReprocessing(documentId: string, repairId: string): Promise<void> {
     const session = this.driver.session();
     try {
@@ -407,6 +433,7 @@ export class Neo4jClient {
   /**
    * Deletes a document and returns true if it existed.
    * @param documentId Document identifier.
+   * @returns True if a document was deleted, otherwise false.
    */
   public async deleteDocument(documentId: string): Promise<boolean> {
     const session = this.driver.session();
@@ -424,6 +451,7 @@ export class Neo4jClient {
   /**
    * Creates a :Memory node and its EXTRACTED_FROM relation.
    * @param input Memory payload.
+   * @returns Created memory; rejects if its source document does not exist.
    */
   public async createMemory(input: MemoryCreateInput): Promise<Memory> {
     const session = this.driver.session();
@@ -482,8 +510,9 @@ export class Neo4jClient {
 
   /**
    * Creates many memories in a single write transaction using UNWIND.
-   * All memories must share the same sourceDocId.
+   * Each memory is linked to its source document.
    * @param inputs Memory payloads.
+   * @returns Memories created for existing source documents; an empty array for empty input or no matches.
    */
   public async batchCreateMemories(inputs: MemoryCreateInput[]): Promise<Memory[]> {
     if (inputs.length === 0) {
@@ -543,7 +572,8 @@ export class Neo4jClient {
 
   /**
    * Creates a derived memory and DERIVES links to each source memory.
-   * @param params Derived memory payload.
+   * @param params Content, container, source document, source memory ids and embedding for the derived memory.
+   * @returns Existing matching derived memory or newly created memory; rejects if required source nodes are absent.
    */
   public async createDerivedMemory(params: {
     content: string;
@@ -648,6 +678,7 @@ export class Neo4jClient {
    * container whose normalised content hash matches. Used for exact dedup.
    * @param containerTag Container namespace.
    * @param contentHash Hash from memoryContentHash().
+   * @returns Oldest matching active memory, or null when no match exists.
    */
   public async findActiveMemoryByContentHash(
     containerTag: string,
@@ -679,6 +710,7 @@ export class Neo4jClient {
   /**
    * Lists memories created before content hashing existed.
    * @param limit Batch size.
+   * @returns Up to limit memory ids, containers and content, ordered oldest first.
    */
   public async listMemoriesMissingContentHash(
     limit: number
@@ -708,6 +740,7 @@ export class Neo4jClient {
   /**
    * Stores precomputed content hashes on existing memories (backfill).
    * @param rows Memory id and hash pairs.
+   * @returns Number of matching memories updated, or zero for empty input.
    */
   public async setMemoryContentHashes(rows: Array<{ id: string; contentHash: string }>): Promise<number> {
     if (rows.length === 0) {
@@ -731,10 +764,11 @@ export class Neo4jClient {
   }
 
   /**
-   * Lists memories whose validFrom or validTo is stored at exactly midnight UTC and that no
+   * Lists memories whose validFrom or validTo is stored at exactly midnight and that no
    * validity normalisation run has touched yet (MEM-05). Ordered by id so callers can page.
    * @param limit Batch size.
    * @param afterId Page cursor: only ids greater than this one.
+   * @returns Next page of memory ids and nullable ISO validity dates in ascending id order.
    */
   public async listMidnightValidityMemories(
     limit: number,
@@ -772,6 +806,7 @@ export class Neo4jClient {
    * can be undone with restoreValidityDates. Nothing else on the node changes.
    * @param rows New ISO values per memory id.
    * @param runId Operational run identifier.
+   * @returns Number of memories updated that had no prior validity run marker, or zero for empty input.
    */
   public async setValidityDates(
     rows: Array<{ id: string; validFrom: string | null; validTo: string | null }>,
@@ -806,6 +841,7 @@ export class Neo4jClient {
   /**
    * Undoes setValidityDates for one run: restores the legacy values and removes the markers.
    * @param runId Run identifier used when normalising.
+   * @returns Number of memories restored for the run.
    */
   public async restoreValidityDates(runId: string): Promise<number> {
     const session = this.driver.session();
@@ -829,6 +865,7 @@ export class Neo4jClient {
   /**
    * Groups active memories that share containerTag and contentHash. Members are
    * ordered oldest first so the first one is the canonical memory.
+   * @returns Container/hash groups with multiple active members, each ordered oldest first.
    */
   public async findDuplicateMemoryGroups(): Promise<Array<{
     containerTag: string;
@@ -872,6 +909,7 @@ export class Neo4jClient {
    * Reversible retirement of exact duplicates: isLatest=false plus a
    * DUPLICATE_OF relation and run markers. Nothing is deleted.
    * @param params Canonical id, duplicate ids and the run identifier.
+   * @returns Number of matching non-canonical memories retired, or zero for empty input or missing nodes.
    */
   public async retireDuplicateMemories(params: {
     canonicalId: string;
@@ -913,6 +951,7 @@ export class Neo4jClient {
   /**
    * Undoes retireDuplicateMemories for one run.
    * @param runId Run identifier used when retiring.
+   * @returns Number of distinct memories restored for the run.
    */
   public async restoreRetiredDuplicates(runId: string): Promise<number> {
     const session = this.driver.session();
@@ -937,6 +976,7 @@ export class Neo4jClient {
   /**
    * Retrieves a memory by id.
    * @param memoryId Memory identifier.
+   * @returns Matching memory, or null when the id does not exist.
    */
   public async getMemory(memoryId: string): Promise<Memory | null> {
     const session = this.driver.session();
@@ -959,7 +999,8 @@ export class Neo4jClient {
   /**
    * Updates mutable memory fields.
    * @param memoryId Memory identifier.
-   * @param input Partial memory payload.
+   * @param input Partial memory payload; omitted fields stay unchanged and null clears date fields.
+   * @returns Updated memory, or null when the id does not exist.
    */
   public async updateMemory(memoryId: string, input: MemoryUpdateInput): Promise<Memory | null> {
     const session = this.driver.session();
@@ -1005,6 +1046,7 @@ export class Neo4jClient {
   /**
    * Deletes a memory and returns true if it existed.
    * @param memoryId Memory identifier.
+   * @returns True if a memory was deleted, otherwise false.
    */
   public async deleteMemory(memoryId: string): Promise<boolean> {
     const session = this.driver.session();
@@ -1021,7 +1063,8 @@ export class Neo4jClient {
 
   /**
    * Lists memories with optional filters.
-   * @param params Query filters.
+   * @param params Optional container, memory type, latest flag and maximum result count.
+   * @returns Matching memories ordered newest first, capped by the limit (default 50).
    */
   public async listMemories(params: {
     containerTag?: string;
@@ -1057,7 +1100,8 @@ export class Neo4jClient {
 
   /**
    * Performs vector search over memories and returns scored hits.
-   * @param params Search parameters.
+   * @param params Query embedding and optional container, score, limit, latest-only and historical asOf filters.
+   * @returns Scored memories satisfying the filters, ordered by descending similarity.
    */
   public async semanticSearchMemories(params: {
     embedding: number[];
@@ -1111,6 +1155,10 @@ export class Neo4jClient {
           )
           AND score >= $minScore
       `;
+      /**
+       * Runs the vector query using the current candidate limit and shared memory filters.
+       * @returns Neo4j query result containing the ranked, filtered memory nodes and scores.
+       */
       const runSearch = () => session.run(
         `
         CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
@@ -1174,7 +1222,8 @@ export class Neo4jClient {
 
   /**
    * Performs vector search over memories with advanced filters.
-   * @param params Search parameters.
+   * @param params Query embedding and optional container, score, limit, latest-only, memory-type and expiry filters.
+   * @returns Scored, non-forgotten memories satisfying the filters, ordered by descending similarity.
    */
   public async semanticSearchMemoriesAdvanced(params: {
     embedding: number[];
@@ -1230,6 +1279,7 @@ export class Neo4jClient {
   /**
    * Creates a chunk node linked to its source document.
    * @param input Chunk payload.
+   * @returns Created chunk; rejects if its source document does not exist.
    */
   public async createChunk(input: ChunkCreateInput): Promise<Chunk> {
     const session = this.driver.session();
@@ -1275,6 +1325,7 @@ export class Neo4jClient {
   /**
    * Creates many chunks in a single write transaction.
    * @param chunks Chunk payloads.
+   * @returns Created chunks ordered by chunkIndex, skipping missing source documents; empty for empty input.
    */
   public async createChunks(chunks: ChunkCreateInput[]): Promise<Chunk[]> {
     if (chunks.length === 0) {
@@ -1324,7 +1375,8 @@ export class Neo4jClient {
 
   /**
    * Performs vector search over chunk nodes.
-   * @param params Search parameters.
+   * @param params Query embedding and optional container, minimum score and result limit.
+   * @returns Scored chunks satisfying the filters, ordered by descending similarity.
    */
   public async semanticSearchChunks(params: {
     embedding: number[];
@@ -1367,6 +1419,7 @@ export class Neo4jClient {
 
   /**
    * Soft-deletes expired episode memories.
+   * @returns Number of previously non-forgotten episodes marked as forgotten.
    */
   public async softDeleteExpiredEpisodes(): Promise<number> {
     const session = this.driver.session();
@@ -1392,6 +1445,7 @@ export class Neo4jClient {
    * Applies confidence decay to one memory type.
    * @param memoryType Target memory type.
    * @param halfLifeDays Half-life in days.
+   * @returns Counts of memories decayed and those marked forgotten because confidence fell below 0.1.
    */
   public async applyConfidenceDecay(memoryType: MemoryType, halfLifeDays: number): Promise<{
     decayedCount: number;
@@ -1432,6 +1486,7 @@ export class Neo4jClient {
   /**
    * Reinforces a preference memory confidence.
    * @param memoryId Memory id.
+   * @returns Preference with confidence increased by 0.15, capped at 1; null if absent or forgotten.
    */
   public async reinforcePreference(memoryId: string): Promise<Memory | null> {
     const session = this.driver.session();
@@ -1463,6 +1518,7 @@ export class Neo4jClient {
   /**
    * Soft deletes a memory by id.
    * @param memoryId Memory id.
+   * @returns True if a non-forgotten memory was marked forgotten, otherwise false.
    */
   public async softDeleteMemoryById(memoryId: string): Promise<boolean> {
     const session = this.driver.session();
@@ -1483,8 +1539,9 @@ export class Neo4jClient {
   }
 
   /**
-   * Gets latest active memories for a container.
+   * Gets latest, non-forgotten memories for a container, including expired memories.
    * @param containerTag Container tag.
+   * @returns Latest, non-forgotten memories ordered newest first; expired memories are included.
    */
   public async getLatestMemoriesByContainer(containerTag: string): Promise<Memory[]> {
     const session = this.driver.session();
@@ -1510,6 +1567,7 @@ export class Neo4jClient {
    * Sets the filter prompt for a container tag.
    * @param containerTag Container tag.
    * @param filterPrompt The prompt to set, or null to unset.
+   * @returns Resolves after storing or clearing the filter prompt.
    */
   public async setContainerConfig(
     containerTag: string,
@@ -1532,6 +1590,7 @@ export class Neo4jClient {
   /**
    * Reads filter prompt configured for a container tag.
    * @param containerTag Container tag.
+   * @returns Configured prompt, or null if the container configuration or prompt is absent.
    */
   public async getContainerFilterPrompt(containerTag: string): Promise<string | null> {
     const session = this.driver.session();
@@ -1559,6 +1618,7 @@ export class Neo4jClient {
    * @param staticProfile Static profile section.
    * @param dynamicProfile Dynamic profile section.
    * @param generatedAt ISO datetime.
+   * @returns Created or updated profile with its generation timestamp.
    */
   public async upsertProfile(
     containerTag: string,
@@ -1587,6 +1647,7 @@ export class Neo4jClient {
   /**
    * Fetches cached profile by container tag.
    * @param containerTag Container tag.
+   * @returns Cached profile, or null if no profile exists for the container.
    */
   public async getProfile(containerTag: string): Promise<Profile | null> {
     const session = this.driver.session();
@@ -1607,6 +1668,7 @@ export class Neo4jClient {
   /**
    * Finds a document by source URL.
    * @param sourceUrl Source URL.
+   * @returns Most recently updated matching document, or null when no match exists.
    */
   public async findDocumentBySourceUrl(sourceUrl: string): Promise<Document | null> {
     const session = this.driver.session();
@@ -1628,6 +1690,7 @@ export class Neo4jClient {
    * Finds a document by content hash and container.
    * @param containerTag Container tag.
    * @param contentHash SHA256 content hash.
+   * @returns Most recently updated document whose stored metadata contains the hash, or null if absent.
    */
   public async findDocumentByContentHash(
     containerTag: string,
@@ -1656,7 +1719,8 @@ export class Neo4jClient {
 
   /**
    * Lists crawled URLs and last crawl date.
-   * @param params Optional filters.
+   * @param params Optional container and maximum result count.
+   * @returns Source URLs, document ids and nullable update timestamps, newest first (default limit 100).
    */
   public async listCrawledUrls(params: {
     containerTag?: string;
@@ -1692,11 +1756,12 @@ export class Neo4jClient {
   }
 
   /**
-   * Creates a relation between two memories and applies its target-side effect atomically.
+   * Creates or reuses a relation between two memories and applies target-side effects atomically.
    * @param fromMemoryId Source memory id.
    * @param toMemoryId Target memory id.
    * @param relationType Neo4j relation type.
-   * @param options Optional target mutation guarded by relation creation.
+   * @param options Optional latest-flag update and preference reinforcement; reinforcement skips existing/repair links.
+   * @returns True if the relation was newly created; false if it existed or either memory is absent.
    */
   public async createMemoryRelation(
     fromMemoryId: string,
@@ -1754,6 +1819,7 @@ export class Neo4jClient {
   /**
    * Marks a memory as no longer current.
    * @param memoryId Memory identifier.
+   * @returns Resolves after the update, including when the memory does not exist.
    */
   public async markMemoryNotLatest(memoryId: string): Promise<void> {
     const session = this.driver.session();
@@ -1770,6 +1836,7 @@ export class Neo4jClient {
   /**
    * Fetches incoming and outgoing relations for a memory.
    * @param memoryId Memory identifier.
+   * @returns Incoming and outgoing memory relations ordered by relation type; empty when none match.
    */
   public async getMemoryRelations(memoryId: string): Promise<MemoryRelation[]> {
     const session = this.driver.session();
@@ -1794,6 +1861,11 @@ export class Neo4jClient {
     }
   }
 
+  /**
+   * Maps a Neo4j document node to the application model, parsing metadata and normalising dates.
+   * @param nodeValue Neo4j node with a properties record.
+   * @returns Document with nullable source fields and ISO timestamps.
+   */
   private mapDocument(nodeValue: unknown): Document {
     const props = this.nodeProps(nodeValue);
     return {
@@ -1811,6 +1883,11 @@ export class Neo4jClient {
     };
   }
 
+  /**
+   * Decodes document metadata stored as JSON or passes through a non-null non-string value.
+   * @param value Stored metadata value.
+   * @returns Parsed object or supplied value; an empty object for nullish values or invalid/non-object JSON.
+   */
   private parseMetadata(value: unknown): Metadata {
     if (typeof value === "string") {
       try {
@@ -1823,6 +1900,11 @@ export class Neo4jClient {
     return (value as Metadata) ?? {};
   }
 
+  /**
+   * Maps a Neo4j memory node to the application model, decoding metadata and normalising dates.
+   * @param nodeValue Neo4j node with a properties record; string metadata must be valid JSON.
+   * @returns Memory with numeric confidence, an embedding array and nullable dates and content hash.
+   */
   private mapMemory(nodeValue: unknown): Memory {
     const props = this.nodeProps(nodeValue);
     return {
@@ -1849,6 +1931,11 @@ export class Neo4jClient {
     };
   }
 
+  /**
+   * Maps a Neo4j chunk node, passing stored metadata through without JSON parsing.
+   * @param nodeValue Neo4j node with a properties record.
+   * @returns Chunk with a numeric index and empty embedding/metadata defaults for missing values.
+   */
   private mapChunk(nodeValue: unknown): Chunk {
     const props = this.nodeProps(nodeValue);
     return {
@@ -1862,6 +1949,11 @@ export class Neo4jClient {
     };
   }
 
+  /**
+   * Maps a cached Neo4j profile node to the application model.
+   * @param nodeValue Neo4j node with a properties record.
+   * @returns Profile with empty defaults for missing sections and an ISO generation timestamp.
+   */
   private mapProfile(nodeValue: unknown): Profile {
     const props = this.nodeProps(nodeValue);
     return {
@@ -1872,6 +1964,11 @@ export class Neo4jClient {
     };
   }
 
+  /**
+   * Extracts node properties and converts supported Neo4j values to JavaScript values.
+   * @param value Expected Neo4j node containing a properties record.
+   * @returns Converted properties; throws when the value is not an object with properties.
+   */
   private nodeProps(value: unknown): Record<string, unknown> {
     if (typeof value === "object" && value !== null && "properties" in value) {
       return this.coerceRecord((value as { properties: Record<string, unknown> }).properties);
@@ -1879,6 +1976,11 @@ export class Neo4jClient {
     throw new Error("Unexpected Neo4j node value");
   }
 
+  /**
+   * Converts each property value without modifying the source record.
+   * @param record Neo4j node properties.
+   * @returns New record with values converted by coerceValue.
+   */
   private coerceRecord(record: Record<string, unknown>): Record<string, unknown> {
     const coerced: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(record)) {
@@ -1887,6 +1989,11 @@ export class Neo4jClient {
     return coerced;
   }
 
+  /**
+   * Converts Neo4j integers and date-like objects, recursively handling array elements.
+   * @param value Property value to convert.
+   * @returns Number for a Neo4j integer, string for a date-like object, converted array, or unchanged value.
+   */
   private coerceValue(value: unknown): unknown {
     if (neo4j.isInt(value)) {
       return (value as Integer).toNumber();
@@ -1910,6 +2017,11 @@ export class Neo4jClient {
     return value;
   }
 
+  /**
+   * Converts a present property to a string while preserving absence.
+   * @param value Property value, possibly null or undefined.
+   * @returns Null for a nullish value, otherwise its string representation.
+   */
   private nullableString(value: unknown): string | null {
     if (value === null || value === undefined) {
       return null;
@@ -1917,6 +2029,11 @@ export class Neo4jClient {
     return String(value);
   }
 
+  /**
+   * Normalises a date string or stringifiable temporal value to UTC.
+   * @param value Value accepted by Date after string conversion.
+   * @returns ISO timestamp; throws RangeError if the value does not represent a valid date.
+   */
   private toIsoString(value: unknown): string {
     if (typeof value === "string") {
       return new Date(value).toISOString();
@@ -1924,6 +2041,11 @@ export class Neo4jClient {
     return new Date(String(value)).toISOString();
   }
 
+  /**
+   * Normalises an optional temporal value with toIsoString.
+   * @param value Date value, possibly null or undefined.
+   * @returns Null for a nullish value, otherwise an ISO timestamp; invalid dates throw RangeError.
+   */
   private toNullableIsoString(value: unknown): string | null {
     if (value === null || value === undefined) {
       return null;
