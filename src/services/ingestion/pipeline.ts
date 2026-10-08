@@ -20,6 +20,7 @@ import {
   type Extractor
 } from "./extractors/index.js";
 
+/** Source content, format and destination container for ingestion, with optional metadata and source location. */
 export type PipelineInput = {
   title: string;
   contentType: ContentType;
@@ -30,6 +31,7 @@ export type PipelineInput = {
   filePath?: string;
 };
 
+/** Processed document and counts of generated chunks, created memories, duplicates and policy rejections. */
 export type PipelineResult = {
   document: Document;
   chunkCount: number;
@@ -37,7 +39,7 @@ export type PipelineResult = {
   memoryCount: number;
   /** Extracted memories skipped because an active memory with the same normalised content exists. */
   duplicateCount: number;
-  /** Extracted memories skipped because the document's temporal_class requires a validTo none was found. */
+  /** Extracted memories skipped because the document's temporal_class requires a validTo and none was found. */
   rejectedCount: number;
 };
 
@@ -58,6 +60,10 @@ export class IngestionPipeline {
 
   /**
    * Creates the ingestion pipeline.
+   * @param neo4jClient Document, chunk and memory persistence client.
+   * @param embeddingService Embedding generator for accepted memories and chunks.
+   * @param relationClassifierService Classifier that links newly created memories.
+   * @param memoryExtractorService Extractor that proposes memories from chunk text.
    */
   public constructor(
     neo4jClient: Neo4jClient,
@@ -74,7 +80,8 @@ export class IngestionPipeline {
 
   /**
    * Creates a document and runs full ingestion.
-   * @param input Ingestion input.
+   * @param input Source content, format, container and optional metadata/source location for a new document.
+   * @returns Processed document and chunk, created-memory, duplicate and rejection counts.
    */
   public async ingest(input: PipelineInput): Promise<PipelineResult> {
     const document = await this.neo4jClient.createDocument(input);
@@ -84,6 +91,8 @@ export class IngestionPipeline {
   /**
    * Runs pipeline stages for an existing document.
    * @param documentId Document id.
+   * @returns Processed document and ingestion counts; failures are recorded on the document and rethrown.
+   * @throws If the document does not exist or an ingestion stage fails.
    */
   public async processDocument(documentId: string): Promise<PipelineResult> {
     const document = await this.neo4jClient.getDocument(documentId);
@@ -212,6 +221,7 @@ export class IngestionPipeline {
    * and against active memories already stored in the container).
    * @param document Source document with temporal policy metadata.
    * @param extractedMemories Memories proposed by the extractor.
+   * @returns Accepted memories with normalised validity and temporal metadata, plus duplicate and rejection counts.
    */
   private async applyMemoryPolicy(
     document: Document,
@@ -263,6 +273,12 @@ export class IngestionPipeline {
     return { accepted, duplicateCount, rejectedCount };
   }
 
+  /**
+   * Extracts candidate memories from each chunk in sequence using the container's filter prompt.
+   * @param chunks Text chunks in processing order.
+   * @param filterPrompt Container extraction filter, or null when no filter is configured.
+   * @returns Combined candidates in chunk order, before deduplication and temporal policy checks.
+   */
   private async extractMemories(
     chunks: ChunkPayload[],
     filterPrompt: string | null
@@ -279,6 +295,11 @@ export class IngestionPipeline {
     return allMemories;
   }
 
+  /**
+   * Selects the content extractor for a document format.
+   * @param contentType Document content format.
+   * @returns URL, PDF, image or conversation extractor; a text extractor for all other formats.
+   */
   private getExtractor(contentType: ContentType): Extractor {
     if (contentType === ContentType.Url) {
       return new UrlExtractor();
@@ -299,6 +320,12 @@ export class IngestionPipeline {
     return new TextExtractor();
   }
 
+  /**
+   * Persists a document's current pipeline stage.
+   * @param documentId Document identifier.
+   * @param status Stage or terminal status to store.
+   * @returns Resolves after the update; a missing document is not reported by this helper.
+   */
   private async setStatus(documentId: string, status: DocumentStatus): Promise<void> {
     await this.neo4jClient.updateDocument(documentId, { status });
   }
@@ -306,7 +333,8 @@ export class IngestionPipeline {
   /**
    * Sets the configuration for a container, including filter prompts.
    * @param containerTag The tag of the container.
-   * @param config The configuration object.
+   * @param config Filter prompt to store; omitted or null clears the prompt.
+   * @returns Resolves after saving the container's filter prompt.
    */
   public async set_container_config(containerTag: string, config: { filterPrompt?: string | null }): Promise<void> {
     // Assuming Neo4jClient will have a method to set container configuration.
