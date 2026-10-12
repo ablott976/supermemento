@@ -133,6 +133,11 @@ const ingestConversationArgsSchema = z.object({
   ...ingestPolicyFields
 });
 
+const getDocumentArgsSchema = z.object({
+  documentId: z.string().uuid(),
+  containerTag: z.string().min(1).optional()
+});
+
 const getDocumentStatusArgsSchema = z.object({
   documentId: z.string().uuid()
 });
@@ -688,6 +693,12 @@ export class SupermementoServer {
           inputSchema: zodToJsonSchema(ingestConversationArgsSchema)
         },
         {
+          name: "get_document",
+          description: "Get a complete document by ID, including rawContent, optionally filtered by containerTag",
+          inputSchema: zodToJsonSchema(getDocumentArgsSchema),
+          annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+        },
+        {
           name: "get_document_status",
           description: "Get the processing status for a document",
           inputSchema: zodToJsonSchema(getDocumentStatusArgsSchema)
@@ -994,6 +1005,15 @@ export class SupermementoServer {
               status: "processing",
               message: "Conversation queued. Use get_document_status to check progress."
             });
+          }
+
+          case "get_document": {
+            const input = getDocumentArgsSchema.parse(args);
+            const document = await this.neo4jClient.getDocument(input.documentId, input.containerTag);
+            if (!document) {
+              return asError(`Document not found: ${input.documentId}`);
+            }
+            return asJson({ document });
           }
 
           case "get_document_status": {

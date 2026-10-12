@@ -30,6 +30,20 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ## Configuration
 
+### Document reads and compact lists
+
+`list_documents` returns document metadata without `rawContent`; `list_memories`
+omits `embedding`. Filters, ordering and limits are unchanged. To read a complete
+document, call the read-only MCP tool `get_document` with `{ "documentId": "<UUID>" }`.
+It returns `{ "document": { ... } }`, including `rawContent` and metadata. An
+optional `containerTag` filters the read in Neo4j, just as in `list_documents`;
+a missing ID or a container mismatch returns `Document not found` without content.
+The authenticated gateway exposes this tool with the existing OAuth checks and
+defaults `containerTag` to `zkteco-pmm`, as it does for document lists. Refresh
+the connector's tool definitions after deploying the backend and gateway.
+`get_document` is exempt from the gateway's response truncation so large document
+bodies remain complete; the existing limit still applies to the other tools.
+
 ### Memory metadata
 
 `create_memory` accepts an optional `metadata` JSON object. `batch_create_memories`

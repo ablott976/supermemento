@@ -102,7 +102,15 @@ describe("Neo4j list projections", { skip: !process.env.TEST_NEO4J_URI }, () => 
     assert.equal((await database.listMemories({ containerTag })).length, 3);
   });
 
-  it("returns compact lists and correct counts through the real MCP handlers", async () => {
+  it("reads complete documents by ID with the same optional container filter as lists", async () => {
+    const document = documents[0]!;
+    assert.deepEqual(await database.getDocument(document.id), document);
+    assert.deepEqual(await database.getDocument(document.id, containerTag), document);
+    assert.equal(await database.getDocument(document.id, "missing-canary"), null);
+    assert.equal(await database.getDocument("00000000-0000-4000-8000-000000000000", containerTag), null);
+  });
+
+  it("returns compact lists and complete document details through the real MCP handlers", async () => {
     const app = Object.assign(Object.create(SupermementoServer.prototype), { neo4jClient: database });
     const server = new Server({ name: "list-test", version: "1" }, { capabilities: { tools: {} } });
     app.registerHandlersOnServer(server);
@@ -111,6 +119,10 @@ describe("Neo4j list projections", { skip: !process.env.TEST_NEO4J_URI }, () => 
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     try {
+      const detailTool = (await client.listTools()).tools.find(tool => tool.name === "get_document");
+      assert.ok(detailTool, "full document reads remain discoverable");
+      assert.deepEqual(detailTool.inputSchema.required, ["documentId"]);
+      assert.equal(detailTool.annotations?.readOnlyHint, true);
       for (const [name, key, omitted] of [
         ["list_documents", "documents", "rawContent"],
         ["list_memories", "memories", "embedding"]
@@ -124,6 +136,26 @@ describe("Neo4j list projections", { skip: !process.env.TEST_NEO4J_URI }, () => 
         assert.ok(payload[key!].every((item: Record<string, unknown>) => !(omitted! in item)));
         assert.ok(text.length < 5000, "large stored fields do not bloat list responses");
       }
+      const document = documents[0]!;
+      for (const args of [{ documentId: document.id }, { documentId: document.id, containerTag }]) {
+        const result = await client.callTool({ name: "get_document", arguments: args });
+        assert.ok(!result.isError, JSON.stringify(result.content));
+        const payload = JSON.parse((result.content as { text: string }[])[0]!.text);
+        assert.deepEqual(payload, { document });
+        assert.equal(payload.document.rawContent.length, 1_050_000);
+      }
+      for (const args of [
+        { documentId: document.id, containerTag: "missing-canary" },
+        { documentId: "00000000-0000-4000-8000-000000000000", containerTag }
+      ]) {
+        const result = await client.callTool({ name: "get_document", arguments: args });
+        assert.equal(result.isError, true);
+        assert.deepEqual(result.content, [{ type: "text", text: `Document not found: ${args.documentId}` }]);
+      }
+      for (const args of [{}, { documentId: "invalid" }, { documentId: document.id, containerTag: "" }]) {
+        assert.equal((await client.callTool({ name: "get_document", arguments: args })).isError, true);
+      }
+      assert.deepEqual(await database.getDocument(document.id), document, "reads do not alter the document");
     } finally {
       await client.close();
       await server.close();

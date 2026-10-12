@@ -152,15 +152,16 @@ export class Neo4jClient {
   }
 
   /**
-   * Returns a document by id.
+   * Returns a complete document by id, optionally filtered by container.
    * @param documentId Document identifier.
+   * @param containerTag Optional container filter, as in listDocuments.
    */
-  public async getDocument(documentId: string): Promise<Document | null> {
+  public async getDocument(documentId: string, containerTag?: string): Promise<Document | null> {
     const session = this.driver.session();
     try {
       const result = await session.run(
-        "MATCH (d:Document {id: $id}) RETURN d LIMIT 1",
-        { id: documentId }
+        "MATCH (d:Document {id: $id}) WHERE ($containerTag IS NULL OR d.containerTag = $containerTag) RETURN d LIMIT 1",
+        { id: documentId, containerTag: containerTag ?? null }
       );
 
       if (result.records.length === 0) {
