@@ -13,11 +13,11 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ## Core Concepts
 
-| Concept       | Description                                                                 |
-| ------------- | --------------------------------------------------------------------------- |
-| **Document**  | Raw content ingested (PDF, URL, text, audio, etc.)                          |
-| **Memory**    | Atomic fact extracted from a Document with embeddings and temporal metadata |
-| **Relations** | Intelligent links between memories: UPDATES, EXTENDS, DERIVES               |
+| Concept | Description |
+|---------|-------------|
+| **Document** | Raw content ingested (PDF, URL, text, audio, etc.) |
+| **Memory** | Atomic fact extracted from a Document with embeddings and temporal metadata |
+| **Relations** | Intelligent links between memories: UPDATES, EXTENDS, DERIVES |
 
 ## Phases
 
