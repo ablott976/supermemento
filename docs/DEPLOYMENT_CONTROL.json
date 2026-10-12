@@ -52,7 +52,7 @@
     "acceptance_required": [
       "Imagen ejecutada y revision OCI coinciden con el SHA fijado; no usar GIT_SHA como evidencia si discrepa.",
       "Backend /health y gateway /health y /ready correctos; MCP publico del gateway sin autenticacion devuelve 401.",
-      "Initialize y descubrimiento MCP basico con sesion sintetica, sin crear/actualizar/borrar memorias reales ni persistir OAuth de prueba.",
+      "Initialize, descubrimiento de herramientas y tools/call autenticado de una herramienta de solo lectura del flujo afectado, con datos sinteticos; sin crear/actualizar/borrar memorias reales ni persistir OAuth de prueba.",
       "Cambio solo de backend no instala gateway; cambio solo de gateway no instala backend."
     ],
     "recovery_required": "Conservar imagen y especificacion previas de cada servicio; recuperar solo los afectados, verificar revision, salud y MCP, conservar volumenes y configuracion persistente de EasyPanel; nunca restaurar esquema o datos automaticamente."
