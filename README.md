@@ -98,7 +98,7 @@ Edit `.env` before starting anything:
 |----------|-------------------------|
 | `NEO4J_URI` | `bolt://localhost:7687` (the example's `neo4j` hostname is for Docker networking) |
 | `NEO4J_USER` | `neo4j` |
-| `NEO4J_PASSWORD` | Choose a local password; Compose uses the same value to initialize Neo4j |
+| `NEO4J_PASSWORD` | Choose a local password of at least 8 characters; Compose uses the same value to initialize Neo4j |
 | `OPENAI_API_KEY` | Your OpenAI API key for embeddings |
 | `OPENAI_EMBEDDING_MODEL` | Keep `text-embedding-3-large`; the schema uses 3072-dimensional vector indexes |
 | `LLM_PROVIDER` | Keep `anthropic` for this walkthrough |
