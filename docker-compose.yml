@@ -19,7 +19,7 @@ services:
     build: .
     container_name: supermemento-mcp
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${MCP_PORT:-${PORT:-8080}}:${MCP_PORT:-${PORT:-8080}}"
     env_file:
       - .env
     environment:
