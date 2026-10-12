@@ -160,8 +160,7 @@ curl --fail http://127.0.0.1:8080/health
 ```
 
 Expect a JSON response with `status: "ok"`. This checks HTTP startup; it does not
-exercise ingestion or the external AI providers. Set `MCP_TRANSPORT=stdio` when
-launching from a client that uses stdio instead of HTTP. Stop the server with
+exercise ingestion or the external AI providers. Stop the server with
 Ctrl+C, and stop the local database with `docker compose stop neo4j`.
 
 See [docs/SPEC.md](docs/SPEC.md) for the development specification and historical
