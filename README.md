@@ -32,8 +32,7 @@ An evolution of the Memento knowledge graph system (Neo4j/MCP) into a dynamic in
 
 ### Latest memory query pagination
 
-`NEO4J_MEMORY_PAGE_SIZE` controls the number of records per query when reading
-all latest active memories for a container (positive integer, default `500`).
+Queries read all latest active memories for a container in pages of 500 records.
 The method still returns every matching memory, ordered by creation time
 descending and ID ascending for ties. Each page continues after the last
 record's timestamp and ID; the final returned list still holds all results.

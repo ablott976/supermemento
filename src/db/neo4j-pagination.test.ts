@@ -10,7 +10,8 @@ const testUri = process.env.NEO4J_TEST_URI;
 
 // Use a disposable, unauthenticated local Neo4j; never a production database.
 describe("Latest memories pagination (real Neo4j)", { skip: !testUri }, () => {
-  for (const [count, pageSize] of [[1001, 500], [6, 3], [0, 3], [1, 3]] as const) {
+  const pageSize = 500;
+  for (const count of [1001, 1000, 0, 1]) {
     it(`returns all ${count} active memories in order with pages of ${pageSize}`, async () => {
       assert.ok(testUri);
       assert.match(testUri, /^bolt:\/\/127\.0\.0\.1:\d+$/);

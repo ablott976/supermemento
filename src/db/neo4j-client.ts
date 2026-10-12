@@ -69,14 +69,12 @@ const DERIVED_MEMORY_ID_NAMESPACE = "6f95d7ad-e62f-4c43-b74a-b722f8394d97";
 /** Neo4j data access layer for Documents, Memories, and relations. */
 export class Neo4jClient {
   private readonly driver: Driver;
-  private readonly memoryPageSize: number;
 
   /**
    * Creates a new Neo4j client from runtime config.
    * @param config Parsed application configuration.
    */
   public constructor(config: AppConfig) {
-    this.memoryPageSize = config.NEO4J_MEMORY_PAGE_SIZE;
     this.driver = neo4j.driver(
       config.NEO4J_URI,
       neo4j.auth.basic(config.NEO4J_USER, config.NEO4J_PASSWORD)
@@ -1491,6 +1489,7 @@ export class Neo4jClient {
   public async getLatestMemoriesByContainer(containerTag: string): Promise<Memory[]> {
     const session = this.driver.session();
     const memories: Memory[] = [];
+    const memoryPageSize = 500;
     let cursorCreatedAt: unknown = null;
     let cursorId: string | null = null;
     try {
@@ -1507,13 +1506,13 @@ export class Neo4jClient {
           ORDER BY m.createdAt DESC, m.id ASC
           LIMIT $pageSize
           `,
-          { containerTag, cursorCreatedAt, cursorId, pageSize: neo4j.int(this.memoryPageSize) }
+          { containerTag, cursorCreatedAt, cursorId, pageSize: neo4j.int(memoryPageSize) }
         );
 
         for (const record of result.records) {
           memories.push(this.mapMemory(record.get("m")));
         }
-        if (result.records.length < this.memoryPageSize) {
+        if (result.records.length < memoryPageSize) {
           return memories;
         }
 
