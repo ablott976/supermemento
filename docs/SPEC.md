@@ -376,9 +376,13 @@ Cada chunk incluye contexto del documento:
 | rerank | Boolean | false | Activar cross-encoder reranking |
 | rewriteQuery | Boolean | false | Activar expansión de query |
 | limit | Integer | 10 | Máximo resultados |
-| min_similarity | Float | 0.6 | Umbral mínimo de similaridad |
+| minSimilarity | Float | 0.6 | Umbral mínimo de similaridad, entre 0 y 1 |
 | memoryTypes | String[]? | null | Filtrar por tipo: fact, preference, episode, derived |
 | includeExpired | Boolean | false | Incluir memorias con validTo pasado |
+
+`min_similarity` se conserva como alias compatible para clientes existentes.
+Si se envían ambos nombres, prevalece `minSimilarity`, incluido el valor `0`.
+Si se omiten ambos, el umbral es `0.6`.
 
 ---
 
