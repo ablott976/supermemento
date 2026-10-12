@@ -7,5 +7,54 @@
   "state_dir": null,
   "runtime_host": "VPS Swarm/EasyPanel: n8n_supermemento, n8n_supermemento-chatgpt, Neo4j n8n_neo4j",
   "schedule": "manual",
-  "status": "verified"
+  "status": "verified",
+  "nightly": {
+    "repo": "ablott976/supermemento",
+    "branch": "main",
+    "domain": "zkteco",
+    "adapter": "supermemento-inspect-v1",
+    "targets": [
+      "n8n_supermemento",
+      "n8n_supermemento-chatgpt"
+    ],
+    "checks": [
+      "backend",
+      "gateway"
+    ],
+    "backup": {
+      "process": "backup-vps",
+      "required": [
+        "Neo4j: copia recuperable verificada de las memorias",
+        "n8n_supermemento: imagen, especificacion y /data/supermemento-codex",
+        "n8n_supermemento-chatgpt: imagen, especificacion y /data (OAuth)"
+      ]
+    },
+    "operations": {
+      "inspect": "inspect",
+      "install": null,
+      "accept": null,
+      "recover": null
+    },
+    "eligibility": "excluded",
+    "reason": "copia_neo4j_volumenes_y_recuperacion_no_acreditadas",
+    "excluded_changes": [
+      "esquema Neo4j",
+      "migraciones",
+      "reparaciones de datos"
+    ],
+    "activation_prerequisites": [
+      "Acreditar copia recuperable de todos los elementos requeridos; la copia backup-vps de 2026-10-12 no los cubre.",
+      "Implementar y ensayar instalacion del SHA fijado y recuperacion persistente a imagen anterior; el adaptador actual solo inspecciona.",
+      "Revisar la ficha y el adaptador por PR antes de habilitar escrituras. Cambiar eligibility o enabled_repos no concede ese permiso."
+    ],
+    "scope": "Backend y gateway ChatGPT por impacto; nunca instala Neo4j. Producto ZKTeco de uso compartido.",
+    "installation_required": "Git archive del SHA completo, docker build con etiqueta OCI de revision completa y actualizacion dirigida de cada servicio afectado; sin ejecutar setup_schema ni reparaciones.",
+    "acceptance_required": [
+      "Imagen ejecutada y revision OCI coinciden con el SHA fijado; no usar GIT_SHA como evidencia si discrepa.",
+      "Backend /health y gateway /health y /ready correctos; MCP publico del gateway sin autenticacion devuelve 401.",
+      "Initialize, descubrimiento de herramientas y tools/call autenticado de una herramienta de solo lectura del flujo afectado, con datos sinteticos; sin crear/actualizar/borrar memorias reales ni persistir OAuth de prueba.",
+      "Cambio solo de backend no instala gateway; cambio solo de gateway no instala backend."
+    ],
+    "recovery_required": "Conservar imagen y especificacion previas de cada servicio; recuperar solo los afectados, verificar revision, salud y MCP, conservar volumenes y configuracion persistente de EasyPanel; nunca restaurar esquema o datos automaticamente."
+  }
 }
