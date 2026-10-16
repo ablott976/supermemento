@@ -223,7 +223,11 @@ const listCrawledUrlsArgsSchema = z.object({
   limit: z.number().int().min(1).max(500).default(100)
 });
 
-/** Strip embedding field from a record to reduce response size. */
+/**
+ * Strips the embedding field to reduce response size without modifying the source record.
+ * @param obj Record that may contain an embedding.
+ * @returns New record containing every field except embedding.
+ */
 function stripEmbedding(obj: Record<string, unknown>): Record<string, unknown> {
   const { embedding, ...rest } = obj;
   return rest;
@@ -232,6 +236,9 @@ function stripEmbedding(obj: Record<string, unknown>): Record<string, unknown> {
 /**
  * Resolves and validates the temporal policy of an ingestion/crawl call and returns the
  * document metadata that carries it into the pipeline.
+ * @param input Optional metadata, explicit temporal class and default memory expiry.
+ * @returns Metadata carrying the resolved temporal class and the supplied default validTo.
+ * @throws If the resolved temporal class requires a validTo that was not supplied.
  */
 function ingestionPolicyMetadata(input: {
   metadata?: Metadata;
@@ -307,6 +314,7 @@ export class SupermementoServer {
 
   /**
    * Starts the server on stdio transport.
+   * @returns Resolves after database connectivity is verified and the MCP transport is connected.
    */
   public async startStdio(): Promise<void> {
     await this.neo4jClient.verifyConnectivity();
@@ -318,6 +326,7 @@ export class SupermementoServer {
    * Starts the server on HTTP/SSE + Streamable HTTP transport.
    * @param port Port to listen on (default 8080).
    * @param host Host to bind to (default 0.0.0.0).
+   * @returns Resolves after verifying database connectivity and requesting the HTTP listener to start.
    */
   public async startSSE(port = 8080, host = "0.0.0.0"): Promise<void> {
     await this.neo4jClient.verifyConnectivity();
@@ -325,7 +334,11 @@ export class SupermementoServer {
     // Shared transport map for both SSE and Streamable HTTP sessions
     const transports = new Map<string, SSEServerTransport | StreamableHTTPServerTransport>();
 
-    /** Parse JSON body from raw IncomingMessage (no Express body-parser). */
+    /**
+     * Reads and parses the JSON body from a raw HTTP request.
+     * @param req Incoming request whose body stream will be consumed.
+     * @returns Parsed JSON value; rejects on malformed JSON or a request stream error.
+     */
     const parseJsonBody = (req: IncomingMessage): Promise<unknown> =>
       new Promise((resolve, reject) => {
         let body = "";
@@ -579,15 +592,17 @@ export class SupermementoServer {
   }
 
   /**
-   * Closes all external resources.
+   * Closes the database driver used by the server.
+   * @returns Resolves after the Neo4j driver is closed.
    */
   public async close(): Promise<void> {
     await this.neo4jClient.close();
   }
 
   /**
-   * Returns the id of the per-container catch-all document for manual memories, creating it once.
+   * Finds a done catch-all document by title among the container's latest 200 documents, or creates one.
    * @param containerTag Container namespace.
+   * @returns Identifier of the existing or newly created catch-all document.
    */
   private async resolveManualMemoriesDocument(containerTag: string): Promise<string> {
     const catchAllTitle = "Manual memories: " + containerTag;
@@ -614,6 +629,7 @@ export class SupermementoServer {
    * Semantic near-duplicate warning for human review. Never merges or blocks: it only reports
    * active memories in the same container whose cosine similarity reaches the configured threshold.
    * @param memory Memory just created (its own id is excluded).
+   * @returns Candidate ids, rounded scores and content; an empty array if search fails or no candidates match.
    */
   private async findPossibleDuplicates(memory: Memory): Promise<Array<{ id: string; score: number; content: string }>> {
     try {
@@ -634,6 +650,11 @@ export class SupermementoServer {
     }
   }
 
+  /**
+   * Registers the tool catalogue and validated tool dispatch handlers on an MCP server.
+   * @param targetServer Server instance for stdio or an HTTP session.
+   * @returns Nothing; installs handlers that use this instance's shared services.
+   */
   private registerHandlersOnServer(targetServer: Server): void {
     targetServer.setRequestHandler(ListToolsRequestSchema, async (): Promise<ListToolsResult> => ({
       tools: [
@@ -1194,6 +1215,7 @@ export class SupermementoServer {
 /**
  * Converts a zod schema to a JSON schema object accepted by MCP tool definitions.
  * @param schema zod schema.
+ * @returns Object schema with mapped properties and names of required fields.
  */
 function zodToJsonSchema(
   schema: z.AnyZodObject
@@ -1217,6 +1239,11 @@ function zodToJsonSchema(
   };
 }
 
+/**
+ * Maps supported Zod types recursively, unwrapping one optional/default layer to determine requiredness.
+ * @param type Property schema to map, including optional, default or nullable wrappers.
+ * @returns JSON schema and required flag; unsupported types fall back to a string schema.
+ */
 function mapZodType(
   type: z.ZodTypeAny
 ): { schema: Record<string, unknown>; required: boolean } {
@@ -1289,6 +1316,11 @@ function mapZodType(
   };
 }
 
+/**
+ * Serialises a tool result as formatted JSON in an MCP text content block.
+ * @param value JSON-serialisable result payload.
+ * @returns Tool response containing the serialised payload as text.
+ */
 function asJson(value: unknown): CallToolResult {
   return {
     content: [
@@ -1300,6 +1332,11 @@ function asJson(value: unknown): CallToolResult {
   };
 }
 
+/**
+ * Formats a tool failure as an MCP error result.
+ * @param message Error text to expose to the tool caller.
+ * @returns Tool response with isError set and a single text content block.
+ */
 function asError(message: string): CallToolResult {
   return {
     isError: true,
