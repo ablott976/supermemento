@@ -39,6 +39,7 @@ from chatgpt_gateway.server import (
 OWNER_TOKEN = "smo_" + "owner-token-for-focused-tests" * 2
 CHATGPT_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
 CHATGPT_DYNAMIC_REDIRECT = "https://chatgpt.com/connector/oauth/cb_test-123"
+DOCUMENT_BODY = "Large document body. " * 50_000
 
 
 def settings(tmp_path: Path) -> GatewaySettings:
@@ -499,6 +500,10 @@ def _backend() -> FastMCP:
         return {"containerTag": containerTag, "limit": limit}
 
     @backend.tool
+    async def get_document(documentId: str, containerTag: str | None = None) -> dict:
+        return {"document": {"id": documentId, "containerTag": containerTag, "rawContent": DOCUMENT_BODY}}
+
+    @backend.tool
     async def list_crawled_urls(containerTag: str | None = None) -> dict:
         return {"containerTag": containerTag}
 
@@ -516,6 +521,7 @@ def _backend() -> FastMCP:
         "get_user_profile",
         "list_memories",
         "list_documents",
+        "get_document",
         "list_crawled_urls",
     }
     for name in ALLOWED_TOOLS - defined:
@@ -537,7 +543,7 @@ def test_tool_surface_is_allowlisted_annotated_and_uses_safe_defaults() -> None:
             tools = await client.list_tools()
             tool_map = {tool.name: tool for tool in tools}
             assert set(tool_map) == set(ALLOWED_TOOLS)
-            assert len(tool_map) == 18
+            assert len(tool_map) == 19
             for name in ["batch_create_memories", "update_memory", "forget_memory", "delete_memory", "create_memory_relation", "ingest_document", "ingest_url", "crawl_url", "crawl_urls"]:
                 assert name in tool_map
             assert tool_map["delete_memory"].annotations.destructiveHint is True
@@ -545,6 +551,10 @@ def test_tool_surface_is_allowlisted_annotated_and_uses_safe_defaults() -> None:
             assert tool_map["forget_memory"].annotations.destructiveHint is True
             assert tool_map["create_memory_relation"].annotations.destructiveHint is True
             assert tool_map["semantic_search"].annotations.readOnlyHint is True
+            assert tool_map["get_document"].annotations.readOnlyHint is True
+            assert tool_map["get_document"].annotations.idempotentHint is True
+            assert tool_map["get_document"].annotations.destructiveHint is False
+            assert tool_map["get_document"].annotations.openWorldHint is False
             assert tool_map["create_memory"].annotations.readOnlyHint is False
             for name in ["ingest_url", "ingest_document", "crawl_url", "crawl_urls"]:
                 assert tool_map[name].annotations.openWorldHint is True
@@ -567,6 +577,11 @@ def test_tool_surface_is_allowlisted_annotated_and_uses_safe_defaults() -> None:
             }
             crawled_urls = await client.call_tool("list_crawled_urls", {})
             assert crawled_urls.data == {"containerTag": "zkteco-pmm"}
+            document_id = "d54b705e-06d9-4fc9-8a60-b45e306ef1c7"
+            document = await client.call_tool("get_document", {"documentId": document_id})
+            assert document.data == {"document": {"id": document_id, "containerTag": "zkteco-pmm", "rawContent": DOCUMENT_BODY}}
+            scoped = await client.call_tool("get_document", {"documentId": document_id, "containerTag": "chatgpt-mcp-canary"})
+            assert scoped.data == {"document": {"id": document_id, "containerTag": "chatgpt-mcp-canary", "rawContent": DOCUMENT_BODY}}
 
     asyncio.run(run())
 
@@ -609,6 +624,22 @@ def test_http_oauth_dcr_redirects_and_authenticated_mcp(tmp_path: Path) -> None:
         assert "resource_metadata" in unauthenticated.headers.get(
             "www-authenticate", ""
         )
+        document_call = {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "get_document",
+                "arguments": {"documentId": "d54b705e-06d9-4fc9-8a60-b45e306ef1c7"},
+            },
+        }
+        for authorization in ({}, {"Authorization": "Bearer invalid-test-token"}):
+            rejected = client.post(
+                "/mcp",
+                headers={"Accept": "application/json, text/event-stream", **authorization},
+                json=document_call,
+            )
+            assert rejected.status_code == 401
 
         protected = client.get("/.well-known/oauth-protected-resource/mcp")
         assert protected.status_code == 200
@@ -691,6 +722,28 @@ def test_http_oauth_dcr_redirects_and_authenticated_mcp(tmp_path: Path) -> None:
         )
         assert call.status_code == 200
         assert call.json()["result"]["isError"] is False
+        document_response = client.post("/mcp", headers=headers, json=document_call)
+        assert document_response.status_code == 200
+        assert document_response.json()["result"]["isError"] is False
+        assert json.loads(document_response.json()["result"]["content"][0]["text"]) == {
+            "document": {
+                "id": "d54b705e-06d9-4fc9-8a60-b45e306ef1c7",
+                "containerTag": "zkteco-pmm",
+                "rawContent": DOCUMENT_BODY,
+            },
+        }
+        large_search = client.post(
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                "params": {"name": "semantic_search", "arguments": {"query": DOCUMENT_BODY}},
+            },
+        )
+        assert large_search.status_code == 200
+        limited_text = large_search.json()["result"]["content"][0]["text"]
+        assert limited_text.endswith("[Response truncated due to size limit]")
+        assert len(limited_text.encode("utf-8")) < 750_000
 
         hidden_call = client.post(
             "/mcp",

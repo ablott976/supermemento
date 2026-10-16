@@ -49,6 +49,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "create_memory": ToolPolicy(read_only=False, idempotent=False),
     "ingest_conversation": ToolPolicy(read_only=False, idempotent=False),
     "get_document_status": ToolPolicy(read_only=True, idempotent=True),
+    "get_document": ToolPolicy(read_only=True, idempotent=True),
     "list_documents": ToolPolicy(read_only=True, idempotent=True),
     "get_user_profile": ToolPolicy(read_only=True, idempotent=True),
     "get_memory_relations": ToolPolicy(read_only=True, idempotent=True),
@@ -133,6 +134,9 @@ def build_transforms() -> list[Transform]:
             }
         ),
         "list_documents": ToolTransformConfig(
+            arguments={"containerTag": ArgTransformConfig(default="zkteco-pmm")}
+        ),
+        "get_document": ToolTransformConfig(
             arguments={"containerTag": ArgTransformConfig(default="zkteco-pmm")}
         ),
         "list_crawled_urls": ToolTransformConfig(
@@ -314,7 +318,9 @@ def create_gateway(
             RateLimitingMiddleware(
                 max_requests_per_second=5, burst_capacity=10, global_limit=True
             ),
-            ResponseLimitingMiddleware(max_size=750_000),
+            ResponseLimitingMiddleware(
+                max_size=750_000, tools=sorted(ALLOWED_TOOLS - {"get_document"})
+            ),
         ],
         lifespan=lifespan,
         mask_error_details=True,

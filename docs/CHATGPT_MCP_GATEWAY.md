@@ -47,8 +47,11 @@ PY
 
 ## Seguridad de tools
 
-- Herramientas ocultas por defecto; se exponen 18 tools explicitas.
+- Herramientas ocultas por defecto; se exponen 19 tools explicitas.
 - Lecturas con defaults seguros para `zkteco-pmm`.
+- `get_document` lee por `documentId` el documento completo, con filtro opcional
+  `containerTag` (por defecto `zkteco-pmm`) y las mismas comprobaciones OAuth.
+  Es de solo lectura y no trunca `rawContent`, incluso en documentos grandes.
 - `update_memory`, `forget_memory`, `delete_memory` y `create_memory_relation`
   se publican con `destructiveHint=true`, con autorizacion explicita de Arturo
   el 2026-09-09. `forget_memory` es borrado logico; `delete_memory` es fisico.
@@ -64,7 +67,7 @@ PY
   con `contentType=text` acepta texto o Markdown. No acepta rutas locales.
 - `setup_schema`, mantenimiento global, creacion/edicion/borrado directo de
   documentos y refuerzo manual de preferencias siguen ocultos.
-- Rate limit global, respuestas limitadas y errores internos ocultos.
+- Rate limit global, respuestas limitadas salvo `get_document` y errores internos ocultos.
 - Protección Host/Origin estricta: solo el dominio público del gateway y `https://chatgpt.com` pueden originar peticiones de navegador; cualquier otro origen se rechaza antes de OAuth.
 - Imagen non-root, dependencias fijadas con hashes, Tini y `Cap Drop=ALL` en EasyPanel.
 
@@ -96,13 +99,13 @@ Montar un volumen dedicado en `/data`. El fichero OAuth se escribe de forma ató
 - `/.well-known/oauth-protected-resource/mcp` anuncia el recurso correcto.
 - `/.well-known/oauth-authorization-server` anuncia DCR, authorization, token y PKCE `S256`.
 - DCR acepta únicamente el callback oficial configurado.
-- El cliente descubre exactamente 18 tools, incluyendo las nueve ampliadas.
+- El cliente descubre exactamente 19 tools, incluyendo `get_document`.
 - Comprobar anotaciones destructivas y open-world, y rechazo de URLs internas.
 
 Desde el 2026-09-10 el backend aplica la politica de memorias (`temporal_class`,
 `validTo` obligatorio para inteligencia con caducidad, deduplicacion exacta y
 proyeccion temporal en `semantic_search`, ver `MEMORY_POLICY.md`). El gateway
-no cambia: reenvia los esquemas del backend, sigue publicando 18 tools y basta
+reenvia los esquemas del backend, publica 19 tools con `get_document` y basta
 con refrescar la definicion del conector para ver los parametros nuevos.
 
 La ampliacion requiere publicar primero el backend con las protecciones de URL
