@@ -165,7 +165,7 @@ describe("Neo4jClient repair relation idempotency", () => {
     assert.equal(result[0]?.memory.id, "historical-memory");
   });
 
-  it("falls back to exact similarity when the approximate historical index underfills", async () => {
+  it("uses exact container similarity before any global historical candidates", async () => {
     const vectorLimits: number[] = [];
     let exactFallbacks = 0;
     const client = clientWithSession({
@@ -210,25 +210,28 @@ describe("Neo4jClient repair relation idempotency", () => {
       limit: 10
     });
 
-    assert.deepEqual(vectorLimits, [100, 200, 250]);
+    assert.deepEqual(vectorLimits, []);
     assert.equal(exactFallbacks, 1);
     assert.equal(result[0]?.memory.id, "exact-historical-memory");
   });
 
-  it("keeps the exact fallback behind every historical underfill gate", async () => {
+  it("uses exact similarity whenever a container is specified", async () => {
     const cases = [
       {
         name: "missing asOf",
         params: { containerTag: "test" },
+        expectedExactSearches: 1,
         approximateRecords: []
       },
       {
         name: "missing containerTag",
         params: { asOf: "2026-01-02T00:00:00.000Z" },
+        expectedExactSearches: 0,
         approximateRecords: []
       },
       {
         name: "approximate search already full",
+        expectedExactSearches: 1,
         params: {
           asOf: "2026-01-02T00:00:00.000Z",
           containerTag: "test"
@@ -262,7 +265,7 @@ describe("Neo4jClient repair relation idempotency", () => {
         ...testCase.params
       });
 
-      assert.equal(exactFallbacks, 0, testCase.name);
+      assert.equal(exactFallbacks, testCase.expectedExactSearches, testCase.name);
     }
   });
 

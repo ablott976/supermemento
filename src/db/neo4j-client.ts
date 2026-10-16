@@ -1069,14 +1069,13 @@ export class Neo4jClient {
   }): Promise<MemorySearchHit[]> {
     const session = this.driver.session();
     const limit = params.limit ?? 10;
-    // Historical and container filters run after the vector index ranks nodes.
-    // Start with an overfetch and, for historical repair, expand only as needed
-    // until enough valid hits are found or every indexed memory was considered.
+    // Scoped searches rank only the requested container. Keep candidate
+    // expansion for historical searches that must use the global vector index.
     let vectorLimit = params.containerTag || params.asOf ? limit * 10 : limit;
     let maximumVectorLimit = vectorLimit;
 
     try {
-      if (params.asOf) {
+      if (params.asOf && params.containerTag === undefined) {
         const countResult = await session.run(
           "MATCH (node:Memory) WHERE node.embedding IS NOT NULL RETURN count(node) AS count"
         );
@@ -1113,8 +1112,7 @@ export class Neo4jClient {
       `;
       const runSearch = () => session.run(
         `
-        CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
-        YIELD node, score
+        ${this.vectorSearchSource("Memory", params.containerTag)}
         ${memoryFilters}
         RETURN node, score
         ORDER BY score DESC
@@ -1139,28 +1137,6 @@ export class Neo4jClient {
       ) {
         vectorLimit = Math.min(maximumVectorLimit, vectorLimit * 2);
         result = await runSearch();
-      }
-      if (params.asOf && params.containerTag && result.records.length < limit) {
-        result = await session.run(
-          `
-          MATCH (node:Memory {containerTag: $containerTag})
-          WHERE node.embedding IS NOT NULL
-            AND size(node.embedding) = size($embedding)
-          WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
-          ${memoryFilters}
-          RETURN node, score
-          ORDER BY score DESC
-          LIMIT $limit
-          `,
-          {
-            limit: neo4j.int(limit),
-            embedding: params.embedding,
-            containerTag: params.containerTag ?? null,
-            minScore: params.minScore ?? 0,
-            isLatestOnly: params.isLatestOnly ?? false,
-            asOf: params.asOf
-          }
-        );
       }
 
       return result.records.map((record) => ({
@@ -1193,8 +1169,7 @@ export class Neo4jClient {
     try {
       const result = await session.run(
         `
-        CALL db.index.vector.queryNodes('memory_embeddings', $vectorLimit, $embedding)
-        YIELD node, score
+        ${this.vectorSearchSource("Memory", params.containerTag)}
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND ($isLatestOnly = false OR node.isLatest = true)
           AND node.forgottenAt IS NULL
@@ -1339,8 +1314,7 @@ export class Neo4jClient {
     try {
       const result = await session.run(
         `
-        CALL db.index.vector.queryNodes('chunk_embeddings', $vectorLimit, $embedding)
-        YIELD node, score
+        ${this.vectorSearchSource("Chunk", params.containerTag)}
         WHERE ($containerTag IS NULL OR node.containerTag = $containerTag)
           AND score >= $minScore
         RETURN node, score
@@ -1809,6 +1783,26 @@ export class Neo4jClient {
       createdAt: this.toIsoString(props.createdAt),
       updatedAt: this.toIsoString(props.updatedAt)
     };
+  }
+
+  private vectorSearchSource(label: "Memory" | "Chunk", containerTag?: string): string {
+    if (containerTag !== undefined) {
+      // queryNodes has no filter argument in Neo4j 5.26. Reuse the exact
+      // container search so unrelated nodes cannot consume the candidate limit.
+      return `
+        MATCH (node:${label} {containerTag: $containerTag})
+        WHERE node.embedding IS NOT NULL
+          AND size(node.embedding) = size($embedding)
+          AND any(component IN node.embedding WHERE component <> 0.0)
+        WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
+      `;
+    }
+
+    const index = label === "Memory" ? "memory_embeddings" : "chunk_embeddings";
+    return `
+      CALL db.index.vector.queryNodes('${index}', $vectorLimit, $embedding)
+      YIELD node, score
+    `;
   }
 
   private parseMetadata(value: unknown): Metadata {
