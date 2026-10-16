@@ -48,10 +48,10 @@ export class SearchService {
     const rewrittenQuery = params.rewriteQuery ? await this.queryRewriter.rewrite(query) : query;
     const embedding = await this.embeddingService.generateEmbedding(rewrittenQuery);
 
-    const memoryResults =
+    const [memoryResults, chunkResults] = await Promise.all([
       mode === "rag"
         ? []
-        : await this.neo4jClient.semanticSearchMemoriesAdvanced({
+        : this.neo4jClient.semanticSearchMemoriesAdvanced({
             embedding,
             containerTag: params.containerTag,
             minScore,
@@ -59,17 +59,16 @@ export class SearchService {
             isLatestOnly: true,
             memoryTypes: params.memoryTypes,
             includeExpired: params.includeExpired ?? false
-          });
-
-    const chunkResults =
+          }),
       mode === "memory"
         ? []
-        : await this.neo4jClient.semanticSearchChunks({
+        : this.neo4jClient.semanticSearchChunks({
             embedding,
             containerTag: params.containerTag,
             minScore,
             limit
-          });
+          })
+    ]);
 
     const merged: SearchResult[] = [
       ...memoryResults.map((hit) => ({
