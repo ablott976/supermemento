@@ -1,4 +1,4 @@
-import neo4j, { Driver, Integer } from "neo4j-driver";
+import neo4j, { Driver, Integer, type QueryResult } from "neo4j-driver";
 import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import type { AppConfig } from "../config.js";
 import { memoryContentHash } from "../services/memory-policy.js";
@@ -1483,24 +1483,44 @@ export class Neo4jClient {
   }
 
   /**
-   * Gets latest active memories for a container.
+   * Gets all latest active memories for a container using bounded queries.
    * @param containerTag Container tag.
    */
   public async getLatestMemoriesByContainer(containerTag: string): Promise<Memory[]> {
     const session = this.driver.session();
+    const memories: Memory[] = [];
+    const memoryPageSize = 500;
+    let cursorCreatedAt: unknown = null;
+    let cursorId: string | null = null;
     try {
-      const result = await session.run(
-        `
-        MATCH (m:Memory {containerTag: $containerTag})
-        WHERE m.isLatest = true
-          AND m.forgottenAt IS NULL
-        RETURN m
-        ORDER BY m.createdAt DESC
-        `,
-        { containerTag }
-      );
+      while (true) {
+        const result: QueryResult = await session.run(
+          `
+          MATCH (m:Memory {containerTag: $containerTag})
+          WHERE m.isLatest = true
+            AND m.forgottenAt IS NULL
+            AND ($cursorId IS NULL
+              OR m.createdAt < $cursorCreatedAt
+              OR (m.createdAt = $cursorCreatedAt AND m.id > $cursorId))
+          RETURN m
+          ORDER BY m.createdAt DESC, m.id ASC
+          LIMIT $pageSize
+          `,
+          { containerTag, cursorCreatedAt, cursorId, pageSize: neo4j.int(memoryPageSize) }
+        );
 
-      return result.records.map((record) => this.mapMemory(record.get("m")));
+        for (const record of result.records) {
+          memories.push(this.mapMemory(record.get("m")));
+        }
+        if (result.records.length < memoryPageSize) {
+          return memories;
+        }
+
+        const lastMemory = result.records.at(-1)?.get("m").properties;
+        // Keep the native Neo4j timestamp so the cursor retains nanosecond precision.
+        cursorCreatedAt = lastMemory.createdAt;
+        cursorId = lastMemory.id;
+      }
     } finally {
       await session.close();
     }
