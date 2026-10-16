@@ -7,6 +7,19 @@
 **Fecha:** 18 de febrero de 2026  
 **Versión:** 1.0 - Documento de Máximos
 
+## Entorno de desarrollo local
+
+La guía vigente está en [Getting Started del README](../README.md#getting-started):
+incluye requisitos, instalación con `npm ci`, configuración y exportación de
+`.env`, arranque de Neo4j local, inicialización con `npm run setup:schema` y
+ejecución del servidor TypeScript con `npm run dev`.
+
+Este documento conserva el plan de arquitectura original; las referencias a
+workflows de n8n son históricas y no son requisitos para arrancar el servidor
+local. Para crear el esquema, usa el script de `src/schema/setup-schema.ts`; las
+queries de la sección 10.2 ilustran el diseño original y no son el procedimiento
+vigente de instalación.
+
 ---
 
 ## 1. Resumen Ejecutivo
