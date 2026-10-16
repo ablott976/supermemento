@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { batchCreateMemoriesInputSchema, createMemoryInputSchema, SupermementoServer, updateMemoryInputSchema } from "./server.js";
+import { batchCreateMemoriesInputSchema, createMemoryInputSchema, semanticSearchArgsSchema, SupermementoServer, updateMemoryInputSchema } from "./server.js";
 import { memoryContentHash } from "./services/memory-policy.js";
 
 const CATCH_ALL = { id: "d54b705e-06d9-4fc9-8a60-b45e306ef1c7", title: "Manual memories: test", containerTag: "test" };
@@ -66,6 +66,48 @@ async function connectFakeServer(overrides: Record<string, unknown> = {}, saved:
 }
 
 describe("Supermemento MCP tool schemas", () => {
+  it("normalizes both similarity parameter names to the same search threshold", () => {
+    const base = { query: "GoTimeCloud", containerTag: "test" };
+    for (const threshold of [0, 0.4, 0.8, 1]) {
+      const canonical = semanticSearchArgsSchema.parse({ ...base, minSimilarity: threshold });
+      const legacy = semanticSearchArgsSchema.parse({ ...base, min_similarity: threshold });
+      assert.equal(canonical.min_similarity, threshold);
+      assert.deepEqual(canonical, legacy);
+    }
+    assert.equal(semanticSearchArgsSchema.parse(base).min_similarity, 0.6);
+    assert.equal(semanticSearchArgsSchema.parse({ ...base, minSimilarity: 0, min_similarity: 0.8 }).min_similarity, 0);
+  });
+
+  it("rejects invalid thresholds under either similarity parameter name", () => {
+    for (const name of ["minSimilarity", "min_similarity"]) {
+      for (const value of [-0.1, 1.1, "0.8", null]) {
+        assert.equal(semanticSearchArgsSchema.safeParse({ query: "GoTimeCloud", [name]: value }).success, false);
+      }
+    }
+  });
+
+  it("advertises both optional similarity parameter names through MCP", async () => {
+    const server = new Server({ name: "test", version: "1" }, { capabilities: { tools: {} } });
+    const app = Object.create(SupermementoServer.prototype) as SupermementoServer;
+    app.registerHandlersOnServer(server);
+    const client = new Client({ name: "test-client", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const { tools } = await client.listTools();
+      const schema = tools.find((tool) => tool.name === "semantic_search")?.inputSchema;
+      assert.ok(schema);
+      for (const name of ["minSimilarity", "min_similarity"]) {
+        assert.deepEqual(schema.properties?.[name], { type: "number" });
+        assert.ok(!schema.required?.includes(name));
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("keeps update validity dates optional and nullable", () => {
     assert.deepEqual(updateMemoryInputSchema.required, ["memoryId"]);
     for (const field of ["validFrom", "validTo", "forgottenAt"]) {

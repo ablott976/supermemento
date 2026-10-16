@@ -77,17 +77,26 @@ const batchCreateMemoriesArgsSchema = z.object({
 
 export const batchCreateMemoriesInputSchema = zodToJsonSchema(batchCreateMemoriesArgsSchema);
 
-const semanticSearchArgsSchema = z.object({
+const semanticSearchInputSchema = z.object({
   query: z.string().min(1),
   containerTag: z.string().min(1).optional(),
   searchMode: z.enum(["memory", "rag", "hybrid"]).default("hybrid"),
   rerank: z.boolean().default(false),
   rewriteQuery: z.boolean().default(false),
   limit: z.number().int().min(1).max(100).default(10),
-  min_similarity: z.number().min(0).max(1).default(0.6),
+  minSimilarity: z.number().min(0).max(1).optional(),
+  min_similarity: z.number().min(0).max(1).optional(),
   memoryTypes: z.array(z.nativeEnum(MemoryType)).optional(),
   includeExpired: z.boolean().default(false)
 });
+
+// Normalize the public camelCase name and legacy alias for the existing search service.
+export const semanticSearchArgsSchema = semanticSearchInputSchema.transform(
+  ({ minSimilarity, min_similarity, ...input }) => ({
+    ...input,
+    min_similarity: minSimilarity ?? min_similarity ?? 0.6
+  })
+);
 
 const createDocumentArgsSchema = z.object({
   title: z.string().min(1),
@@ -665,7 +674,7 @@ export class SupermementoServer {
         {
           name: "semantic_search",
           description: "SuperRAG semantic search with memory/rag/hybrid modes, rewriting, and reranking",
-          inputSchema: zodToJsonSchema(semanticSearchArgsSchema)
+          inputSchema: zodToJsonSchema(semanticSearchInputSchema)
         },
         {
           name: "create_document",
